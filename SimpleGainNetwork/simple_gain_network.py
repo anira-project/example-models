@@ -15,10 +15,11 @@ class SimpleGainNetwork(nn.Module):
     def __init__(self):
         super(SimpleGainNetwork, self).__init__()
 
-    def forward(self, data, gain):
+    def forward(self, data, gain) -> Tuple[torch.Tensor, torch.Tensor]:
         processed_data = data * gain
         peak = torch.max(torch.abs(processed_data))
-        return processed_data, torch.tensor([peak])
+        peak = peak.view(1)
+        return processed_data, peak
 
 
 # SimpleGainNetwork (TensorFlow)
