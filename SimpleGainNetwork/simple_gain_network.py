@@ -69,9 +69,8 @@ def convert_tf_to_tflite(model, is_stereo=True):
     data_shape = tf.TensorSpec([1, channels, None], dtype=tf.float32)
     gain_shape = tf.TensorSpec([1, 1, 1], dtype=tf.float32)
 
-    func = tf.function(model).get_concrete_function([data_shape, gain_shape])
-
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([func])
+    concrete_func = tf.function(model).get_concrete_function([data_shape, gain_shape])
+    converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_func], model)
     converter.allow_custom_ops = True
     tflite_model = converter.convert()
 
