@@ -9,6 +9,7 @@ import os
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+
 # SimpleGainNetwork (PyTorch)
 class SimpleGainNetwork(nn.Module):
     def __init__(self):
@@ -34,16 +35,18 @@ def run_pytorch_inference(net, data, gain):
         return net(data, gain)
 
 
-def export_torchscript_model(net, data, gain, filepath="simple_gain_network.pt"):
-    filepath = os.path.join(MODEL_DIR, filepath)
+def export_torchscript_model(net, data, gain, is_stereo=True):
+    suffix = "stereo" if is_stereo else "mono"
+    filepath = os.path.join(MODEL_DIR, f"simple_gain_network_{suffix}.pt")
     scripted_net = torch.jit.trace(net, (data, gain))
     scripted_net.save(filepath)
     print(f"Saved TorchScript model to {filepath}")
     return filepath
 
 
-def export_onnx_model(net, data, gain, filepath="simple_gain_network.onnx"):
-    filepath = os.path.join(MODEL_DIR, filepath)
+def export_onnx_model(net, data, gain, is_stereo=True):
+    suffix = "stereo" if is_stereo else "mono"
+    filepath = os.path.join(MODEL_DIR, f"simple_gain_network_{suffix}.onnx")
     torch.onnx.export(
         net,
         (data, gain),
@@ -57,9 +60,12 @@ def export_onnx_model(net, data, gain, filepath="simple_gain_network.onnx"):
     return filepath
 
 
-def convert_tf_to_tflite(model, tflite_model_path="simple_gain_network.tflite"):
-    tflite_model_path = os.path.join(MODEL_DIR, tflite_model_path)
-    data_shape = tf.TensorSpec([1, 2, None], dtype=tf.float32)
+def convert_tf_to_tflite(model, is_stereo=True):
+    suffix = "stereo" if is_stereo else "mono"
+    tflite_model_path = os.path.join(MODEL_DIR, f"simple_gain_network_{suffix}.tflite")
+
+    channels = 2 if is_stereo else 1
+    data_shape = tf.TensorSpec([1, channels, None], dtype=tf.float32)
     gain_shape = tf.TensorSpec([1, 1, 1], dtype=tf.float32)
 
     func = tf.function(model).get_concrete_function([data_shape, gain_shape])
@@ -107,22 +113,27 @@ def check_consistency(output1, output2, tolerance=1e-6, name=""):
     print(f"{name} outputs are consistent.")
 
 
-def main():
+def main(is_stereo=True):
+    channels = 2 if is_stereo else 1
+
+    # Create PyTorch model and convert to LibTorch and OnnxRuntime
     net = SimpleGainNetwork()
-    data = torch.randn(1, 2, 10)
+    data = torch.randn(1, channels, 10)
     gain = torch.tensor([1.5])
+    torchscript_model_path = export_torchscript_model(net, data, gain, is_stereo)
+    onnx_model_path = export_onnx_model(net, data, gain, is_stereo)
 
-    torchscript_model_path = export_torchscript_model(net, data, gain)
-    onnx_model_path = export_onnx_model(net, data, gain)
-
+    # Create TensorFlow model and convert to TFLite
     tf_model = SimpleGainNetworkTF()
     tf_model((tf.constant(data.numpy()), tf.constant(gain.numpy())))
-    tflite_model_path = convert_tf_to_tflite(tf_model)
+    tflite_model_path = convert_tf_to_tflite(tf_model, is_stereo)
 
+    # Run inferences
     output_data_pytorch, output_peak_pytorch = run_pytorch_inference(net, data, gain)
     processed_data_onnx, peak_value_onnx = run_onnx_inference(onnx_model_path, data, gain)
     processed_data_tflite, peak_value_tflite = run_tflite_inference(tflite_model_path, data, gain)
 
+    # Check consistency
     check_consistency(output_data_pytorch.numpy(), processed_data_onnx, name="PyTorch vs ONNX (Processed Data)")
     check_consistency(output_peak_pytorch.numpy(), peak_value_onnx, name="PyTorch vs ONNX (Peak)")
     check_consistency(processed_data_onnx, processed_data_tflite, name="ONNX vs TFLite (Processed Data)")
@@ -132,4 +143,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(is_stereo=False)
