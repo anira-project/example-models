@@ -5,6 +5,7 @@ import onnx
 import onnxruntime as ort
 import tensorflow as tf
 import os
+from typing import Tuple
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -27,7 +28,8 @@ class SimpleGainNetworkTF(tf.keras.Model):
     def call(self, inputs):
         data, gain = inputs
         processed_data = data * gain
-        peak = tf.reduce_max(tf.abs(processed_data), axis=[1, 2], keepdims=True)
+        peak = tf.reduce_max(tf.abs(processed_data))
+        peak = tf.reshape(peak, [1])
         return processed_data, peak
 
 
