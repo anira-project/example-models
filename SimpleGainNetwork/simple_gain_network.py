@@ -145,4 +145,4 @@ def main(is_stereo=True):
 
 
 if __name__ == "__main__":
-    main(is_stereo=False)
+    main(is_stereo=True)
