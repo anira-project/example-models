@@ -2,4 +2,6 @@ torch
 numpy
 onnx
 onnxruntime
+onnxscript
 tensorflow
+executorch

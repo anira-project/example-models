@@ -1,2 +1,5 @@
 .idea/*
 venv/
+.venv/
+__pycache__/
+*.onnx.data
