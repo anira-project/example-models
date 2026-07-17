@@ -2,6 +2,6 @@
 venv/
 .venv/
 __pycache__/
-*.onnx.dataRaveDjembe/rave/
+*.onnx.datathird-party/ircam-acids/RAVE/RaveDjembe/rave/
 venv-et/
 venv-tflite/

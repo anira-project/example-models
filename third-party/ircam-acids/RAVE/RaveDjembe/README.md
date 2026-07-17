@@ -71,11 +71,11 @@ random, no dynamic shapes.
 ## Files and licensing
 
 `Djembe_deterministic.ts` is the source TorchScript export this port is built
-from; `rave_funk_drum.ts` is a second custom-trained RAVE model kept here for
-experimentation (not yet ported — the same pipeline applies if its
-architecture matches). The RAVE-trained models and the exports derived from
-them are licensed CC BY-NC 4.0, see [LICENSE](LICENSE). The export/test code
-in this directory is covered by the repository license.
+from; `../rave_funk_drum.ts` is a second custom-trained RAVE model kept
+alongside for experimentation (not yet ported — the same pipeline applies if
+its architecture matches). The RAVE-trained models and the exports derived
+from them are licensed CC BY-NC 4.0, see [../../LICENSE](../../LICENSE). The
+export/test code in this directory is covered by the repository license.
 
 ## Regenerating / testing
 
