@@ -1,6 +1,6 @@
 # License
 
-The models under the "./RAVE" directory have been trained with the [RAVE](https://github.com/acids-ircam/RAVE) architecture and are licensed under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
+The RAVE models in this directory (`Djembe_deterministic.ts`, `rave_funk_drum.ts`) have been trained with the [RAVE](https://github.com/acids-ircam/RAVE) architecture, and the runtime exports under `models/` are derived from them. All of these are licensed under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
 
 ## Creative Commons Attribution-NonCommercial 4.0 International
 
