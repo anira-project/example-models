@@ -2,4 +2,6 @@
 venv/
 .venv/
 __pycache__/
-*.onnx.data
+*.onnx.dataRaveDjembe/rave/
+venv-et/
+venv-tflite/
