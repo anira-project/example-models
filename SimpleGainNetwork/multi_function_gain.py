@@ -28,7 +28,7 @@ def main() -> None:
     }
     program = to_edge(methods).to_executorch()
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models",
-                       "multi_function_gain.pte")
+                       "simple_gain_network_multifunction.pte")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "wb") as f:
         f.write(program.buffer)
