@@ -29,7 +29,8 @@ def convert(module, example_inputs, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--block", type=int, default=RATIO)
+    ap.add_argument("--block", type=int, default=8 * RATIO,
+                    help="audio samples per call (multiple of 128; default 1024 = 8 latent frames, amortizes per-call overhead)")
     ap.add_argument("--outdir", type=Path,
                     default=Path(__file__).resolve().parent / "models")
     a = ap.parse_args()

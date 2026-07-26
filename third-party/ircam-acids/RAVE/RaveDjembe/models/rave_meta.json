@@ -1,12 +1,12 @@
 {
   "sample_rate": 44100,
-  "block_size": 128,
-  "latent_frames_per_block": 1,
+  "block_size": 1024,
+  "latent_frames_per_block": 8,
   "latent_size": 2,
   "fill_shape": [
     1,
     14,
-    1
+    8
   ],
   "fill_note": "prior sample for the truncated latent dims; zeros = deterministic, N(0,1) = stock behavior",
   "state_sizes": {

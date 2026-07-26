@@ -15,6 +15,7 @@ below).
 | architecture | RAVE v1 (PQMF 16 bands, Encoder + Generator), causal convolutions |
 | sample rate | 44100, mono |
 | compression ratio | 128 samples per latent frame (16x lower latency than the previous Djembe) |
+| export block size | 1024 samples = 8 latent frames per call (amortizes per-call overhead ~3-4x; re-export with `--block` for any multiple of 128) |
 | latent size | 2 (PCA-truncated from 16) |
 | determinism | encoder emits the variational mean; the decoder's truncated-dims prior sample is the explicit `fill_in` input (zeros = deterministic) |
 
@@ -27,12 +28,13 @@ alignment delay is zero, which is where much of the latency drop comes from).
 
 ## Interface (identical across `.onnx` / `.tflite` / `.pte`)
 
-All tensors float32, batch 1, fixed block size 128 samples:
+All tensors float32, batch 1, fixed block size 1024 samples (8 latent
+frames per call; frame k of a block covers samples [k*128, (k+1)*128)):
 
 ```
-rave_encoder : audio_in [1,1,128],  state_in [1,7136]                    -> latent_out [1,2,1], state_out
-rave_decoder : latent_in [1,2,1],   state_in [1,154464], fill_in [1,14,1] -> audio_out [1,1,128], state_out
-rave_forward : audio_in [1,1,128],  state_in [1,161600], fill_in [1,14,1] -> audio_out [1,1,128], state_out
+rave_encoder : audio_in [1,1,1024], state_in [1,7136]                     -> latent_out [1,2,8], state_out
+rave_decoder : latent_in [1,2,8],   state_in [1,154464], fill_in [1,14,8] -> audio_out [1,1,1024], state_out
+rave_forward : audio_in [1,1,1024], state_in [1,161600], fill_in [1,14,8] -> audio_out [1,1,1024], state_out
 ```
 
 Streaming protocol:
@@ -81,11 +83,11 @@ random, no dynamic shapes.
 
 | check (vs TorchScript reference) | ONNX Runtime | LiteRT | ExecuTorch |
 |---|---|---|---|
-| forward, 16 chained blocks | 8.7e-08 | 9.5e-08 | 1.3e-07 |
-| encoder (latents \|z\|≈50, rel err) | 1.5e-06 | 1.4e-06 | 1.5e-06 |
-| decoder | 2.9e-08 | 9.4e-08 | 8.1e-08 |
-| 2 interleaved streams, 1 session | ≤1.4e-07 | ≤9.5e-08 | ≤2.1e-07 |
-| ms / 2048-sample block (budget 46.4) | 0.82 (56×) | 1.14 (41×) | 4.06 (11×) |
+| forward, 8 chained 1024-blocks | 8.9e-06 | 1.0e-05 | 5.9e-06 |
+| encoder (latents \|z\|≈50) | 4.2e-06 | 4.2e-06 | 5.9e-06 |
+| decoder | 3.5e-06 | 3.1e-06 | 3.1e-06 |
+| 2 interleaved streams, 1 session | ≤8.9e-06 | ≤1.0e-05 | ≤6.3e-06 |
+| ms / 1024-sample block (budget 23.2) | 1.9 (12×) | 8.2 (2.8×) | 8.3 (2.8×) |
 
 ## Files and licensing
 

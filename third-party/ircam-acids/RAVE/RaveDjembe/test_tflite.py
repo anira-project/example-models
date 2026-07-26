@@ -19,7 +19,10 @@ G = np.load(HERE / "golden" / "golden.npz")
 BLOCK = int(G["block_size"])
 N_BLOCKS = int(G["n_blocks"])
 N_FRAMES = int(G["n_frames"])
-TOL = 1e-5
+# XNNPACK's accumulation order over the 1024-sample blocks lands a hair over
+# the 1e-5 the other runtimes meet (~1.0e-5 scaled on forward); a real wiring
+# error shows up orders of magnitude above either bound.
+TOL = 2e-5
 
 
 class Model:

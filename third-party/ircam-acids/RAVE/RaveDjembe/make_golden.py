@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "rave"))
 from stateful_rave import RATIO, build_eager_model, StatefulForward
 
 HERE = Path(__file__).resolve().parent
-BLOCK = RATIO          # one latent frame per call — the export default
-N_BLOCKS = 64
+BLOCK = 8 * RATIO      # 8 latent frames per call — the export default
+N_BLOCKS = 8
 
 torch.set_grad_enabled(False)
 
