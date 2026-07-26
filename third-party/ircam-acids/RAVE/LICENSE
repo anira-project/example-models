@@ -1,6 +1,6 @@
 # License
 
-The models under the "./RAVE" directory — including the runtime exports derived from them under "./RAVE/RaveDjembe/models/" — have been trained with the [RAVE](https://github.com/acids-ircam/RAVE) architecture and are licensed under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
+The models in this directory — including the runtime exports derived from them under "./RaveDjembe/models/" — have been trained with the [RAVE](https://github.com/acids-ircam/RAVE) architecture and are licensed under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
 
 ## Creative Commons Attribution-NonCommercial 4.0 International
 

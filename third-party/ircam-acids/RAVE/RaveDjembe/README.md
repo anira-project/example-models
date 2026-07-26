@@ -1,5 +1,10 @@
 # RaveDjembe — RAVE with explicit state (stateless streaming)
 
+The RAVE model itself was developed, modified and trained by
+[Michael Witte](https://github.com/michaelwitte); the original architecture
+and training code come from the IRCAM
+[acids-ircam/RAVE](https://github.com/acids-ircam/RAVE) repository.
+
 Port of `Djembe_streaming.ts` (RAVE v2.3.1 TorchScript streaming export,
 v1 architecture, variational encoder, causal low-latency configuration;
 checkpoint drop `djembe_2_80d99cfa85`) to **ONNX Runtime, LiteRT/TFLite and
@@ -91,11 +96,11 @@ random, no dynamic shapes.
 
 ## Files and licensing
 
-`Djembe_deterministic.ts` is the source TorchScript export this port is built
+`Djembe_streaming.ts` is the source TorchScript export this port is built
 from; `../rave_funk_drum.ts` is a second custom-trained RAVE model kept
 alongside for experimentation (not yet ported — the same pipeline applies if
 its architecture matches). The RAVE-trained models and the exports derived
-from them are licensed CC BY-NC 4.0, see [../../LICENSE](../../LICENSE). The
+from them are licensed CC BY-NC 4.0, see [../LICENSE](../LICENSE). The
 export/test code in this directory is covered by the repository license.
 
 ## Regenerating / testing
