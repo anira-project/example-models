@@ -1,14 +1,17 @@
-"""Rebuild the Djembe RAVE v1 (streaming) model in eager PyTorch with EXPLICIT state.
+"""Rebuild the Djembe-2 RAVE v1 (streaming) model in eager PyTorch with EXPLICIT state.
 
-The original ``Djembe_deterministic.ts`` is a TorchScript export of RAVE v2.3.1
-(`scripts/export.py --streaming`), variational encoder, v1 architecture:
+The original ``Djembe_streaming.ts`` (WeTransfer drop djembe_2_80d99cfa85) is a TorchScript export of
+RAVE v2.3.1 (`scripts/export.py --streaming`), variational encoder, v1
+architecture, low-latency configuration:
 
-    pqmf   : CachedPQMF(attenuation=100, n_band=16)
-    encoder: VariationalEncoder(Encoder(data_size=16, capacity=32, latent_size=16,
-                                        ratios=[4,4,4,2], n_out=2))
-    decoder: Generator(latent_size=16, capacity=32, data_size=16,
-                       ratios=[4,4,4,2], loud_stride=1, use_noise=True)
-    latent truncated to 4 dims via PCA (deterministic: mean latent, zero-fill).
+    pqmf   : CachedPQMF(n_band=16, 129-tap prototype)
+    encoder: VariationalEncoder(Encoder(data_size=16, capacity=64, latent_size=16,
+                                        ratios=[2,2,2,1], n_out=2))
+    decoder: Generator(latent_size=16, capacity=64, data_size=16,
+                       ratios=[2,2,2,1], loud_stride=1, use_noise=False)
+    latent truncated to 2 dims via PCA (deterministic: mean latent, zero-fill).
+    One latent frame per 128 samples (16x lower latency than the original
+    Djembe's 2048).
 
 Streaming state lives in two primitive module types from ``cached_conv``:
   * CachedPadding1d      -- left-context of every causal conv / delay line
@@ -17,9 +20,13 @@ Streaming state lives in two primitive module types from ``cached_conv``:
 This module rebuilds the model from the repo source, loads the weights from the
 .ts file, and re-implements those primitives so that ALL state is passed in and
 returned as one flat float32 tensor -> stateless inference (ONNX / TFLite /
-ExecuTorch friendly).  The decoder's noise generator is made deterministic by
-taking the uniform noise as an explicit input, and its FFT convolution is
-replaced by exact DFT matmuls (portable to runtimes without FFT ops).
+ExecuTorch friendly).  This model has no noise generator (use_noise=False).
+The stock export is stochastic in two places — the variational encoder samples
+``mean + eps * std`` and the decoder fills the truncated latent dims with
+``randn`` (the VAE prior).  The stateless wrappers make both deterministic:
+the encoder emits the mean, and the decoder takes the prior sample as an
+explicit ``fill`` input (zeros = deterministic mean-of-prior; random in
+N(0, 1) reproduces the stock behavior).
 """
 
 import functools
@@ -38,16 +45,14 @@ torch.set_grad_enabled(False)
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE / "rave"  # git clone https://github.com/acids-ircam/RAVE rave
-TS_PATH = HERE / "Djembe_deterministic.ts"
+TS_PATH = HERE / "Djembe_streaming.ts"
 
-# Architecture constants (derived from the .ts state dict, see README)
+# Architecture constants (derived from the .ts module tree, see README)
 N_BAND = 16
-CAPACITY = 32
+CAPACITY = 64
 FULL_LATENT = 16
-RATIOS = [4, 4, 4, 2]
-NOISE_RATIOS = [4, 4, 4]
-NOISE_BANDS = 5
-RATIO = 2048  # total samples per latent frame (16 * 4*4*4*2)
+RATIOS = [2, 2, 2, 1]
+RATIO = 128  # total samples per latent frame (16 * 2*2*2*1)
 
 _cc = None
 _blocks = None
@@ -62,6 +67,13 @@ def _import_rave_modules():
 
     import cached_conv as cc
     cc.use_cached_conv(True)
+
+    # This model was exported CAUSAL (gin: cached_conv.get_padding.mode =
+    # "causal"): every conv pads left-only, so all branch-alignment and
+    # downsampling delays are zero — visible in the .ts as 0-length cache
+    # buffers. Bind the same mode or the rebuilt caches disagree in shape.
+    _get_padding = cc.get_padding
+    cc.get_padding = lambda *a, **k: _get_padding(*a, **{**k, "mode": "causal"})
 
     # v1.gin: cc.Conv1d.bias = False / cc.ConvTranspose1d.bias = False
     _Conv, _ConvT = cc.Conv1d, cc.ConvTranspose1d
@@ -136,12 +148,11 @@ def _import_rave_modules():
     # (_fix_pqmf_filters). Return a dummy prototype of the right length.
     pqmf_mod.get_prototype = lambda atten, M, N=None: np.zeros(377)
 
-    # v1.gin bindings normally supplied by gin
+    # gin bindings normally supplied by gin; dilations read from the .ts
+    # module tree (CachedConv1d.dilation attributes).
     blocks.ResidualStack = functools.partial(
         blocks.ResidualStack, kernel_sizes=[3],
-        dilations_list=[[1, 1], [3, 1], [5, 1]])
-    blocks.NoiseGenerator = functools.partial(
-        blocks.NoiseGenerator, ratios=NOISE_RATIOS, noise_bands=NOISE_BANDS)
+        dilations_list=[[3, 1], [9, 1], [27, 1], [36, 1]])
 
     _cc, _blocks, _pqmf_mod = cc, blocks, pqmf_mod
     return cc, blocks, pqmf_mod
@@ -161,7 +172,7 @@ class EagerRAVE(nn.Module):
         self.encoder = blocks.VariationalEncoder(enc)
         self.decoder = blocks.Generator(
             latent_size=FULL_LATENT, capacity=CAPACITY, data_size=N_BAND,
-            ratios=RATIOS, loud_stride=1, use_noise=True)
+            ratios=RATIOS, loud_stride=1, use_noise=False)
         self.register_buffer("latent_pca", torch.eye(FULL_LATENT))
         self.register_buffer("latent_mean", torch.zeros(FULL_LATENT))
         self.register_buffer("fidelity", torch.zeros(FULL_LATENT))
@@ -235,7 +246,7 @@ def build_eager_model(ts_path=TS_PATH):
 
     meta = {
         "sr": int(ts.sr),
-        "latent_size": int(ts.latent_size),           # 4 (exported dims)
+        "latent_size": int(ts.latent_size),           # 2 (exported dims)
         "full_latent_size": int(ts.full_latent_size), # 16
         "ratio": RATIO,
         "n_band": N_BAND,
@@ -273,69 +284,6 @@ def _convT_forward(self, x):
     return y
 
 
-def _make_dft_matrices(bands, target):
-    """Exact real-DFT matrices (float64 -> float32) for the noise generator."""
-    fs = 2 * (bands - 1)          # irfft length of the amplitude spectrum (8)
-    N = 2 * target                # fft_convolve length (128)
-    Nh = N // 2 + 1
-
-    k = np.arange(bands)
-    t = np.arange(fs)
-    w = np.ones(bands); w[1:-1] = 2.0
-    irfft_small = (w[:, None] * np.cos(2 * np.pi * np.outer(k, t) / fs)) / fs
-
-    tN = np.arange(N)
-    kN = np.arange(Nh)
-    ang = 2 * np.pi * np.outer(tN, kN) / N
-    rfft_C = np.cos(ang)          # [N, Nh]  real part
-    rfft_S = -np.sin(ang)         # [N, Nh]  imag part
-    wN = np.ones(Nh); wN[1:-1] = 2.0
-    irfft_C = (wN[:, None] * np.cos(2 * np.pi * np.outer(kN, tN) / N)) / N
-    irfft_S = (-wN[:, None] * np.sin(2 * np.pi * np.outer(kN, tN) / N)) / N
-
-    f32 = lambda a: torch.from_numpy(a).to(torch.float32)
-    return (f32(irfft_small), f32(rfft_C), f32(rfft_S),
-            f32(irfft_C), f32(irfft_S))
-
-
-def _noise_forward(self, x):
-    """NoiseGenerator.forward with external noise + matmul DFTs.
-
-    self._noise_in: uniform noise in [-1, 1], shape [1, T, data_size, target]
-    (same shape/order that `torch.rand_like(ir)` consumed in the original).
-    """
-    from rave.core import mod_sigmoid
-    amp = mod_sigmoid(self.net(x) - 5)
-    amp = amp.permute(0, 2, 1)
-    amp = amp.reshape(amp.shape[0], amp.shape[1], self.data_size, -1)
-
-    fs = 2 * (amp.shape[-1] - 1)
-    target = self._target_int  # python int (torch.export-safe)
-
-    # amp_to_impulse_response (irfft of a real spectrum -> matmul)
-    ir = amp @ self._irfft_small
-    ir = torch.roll(ir, fs // 2, -1) * self._hann
-    ir = F.pad(ir, (0, target - fs))
-    ir = torch.roll(ir, -(fs // 2), -1)
-
-    noise = self._noise_in
-    # fft_convolve(noise, ir) -> matmul DFT
-    sig = F.pad(noise, (0, target))
-    ker = F.pad(ir, (target, 0))
-    sr = sig @ self._rfft_C
-    si = sig @ self._rfft_S
-    kr = ker @ self._rfft_C
-    ki = ker @ self._rfft_S
-    outr = sr * kr - si * ki
-    outi = sr * ki + si * kr
-    out = outr @ self._irfft_C + outi @ self._irfft_S
-    out = out[..., target:]
-
-    out = out.permute(0, 2, 1, 3)
-    out = out.reshape(out.shape[0], out.shape[1], -1)
-    return out
-
-
 def _pqmf_forward(self, x):
     x = self.forward_conv(x)
     return x * self._fwd_mask
@@ -370,10 +318,6 @@ def patch_stateful():
     from cached_conv import convs
     convs.CachedPadding1d.forward = _padding_forward
     convs.CachedConvTranspose1d.forward = _convT_forward
-    # NoiseGenerator is wrapped in functools.partial; patch the real class
-    ng = blocks.NoiseGenerator.func if isinstance(
-        blocks.NoiseGenerator, functools.partial) else blocks.NoiseGenerator
-    ng.forward = _noise_forward
     pqmf_mod.CachedPQMF.forward = _pqmf_forward
     pqmf_mod.CachedPQMF.inverse = _pqmf_inverse
     _PATCHED = True
@@ -419,7 +363,9 @@ class StateRegistry:
 # ---------------------------------------------------------------------------
 
 class StatefulEncoder(nn.Module):
-    """audio [1,1,block], state [1,S] -> latent [1,4,block/2048], new_state."""
+    """audio [1,1,block], state [1,S] -> latent [1,2,block/128], new_state.
+
+    Deterministic: emits the variational mean (no sampling)."""
 
     def __init__(self, model, meta, block_size):
         super().__init__()
@@ -449,7 +395,11 @@ class StatefulEncoder(nn.Module):
 
 
 class StatefulDecoder(nn.Module):
-    """latent [1,4,n], state [1,S], noise [1,n*2,16,64] -> audio, new_state."""
+    """latent [1,2,n], state [1,S], fill [1,14,n] -> audio [1,1,n*128], new_state.
+
+    ``fill`` is the prior sample for the PCA-truncated latent dimensions:
+    zeros give the deterministic mean-of-prior decode; N(0, 1) noise
+    reproduces the stock TorchScript behavior."""
 
     def __init__(self, model, meta, block_size):
         super().__init__()
@@ -459,39 +409,22 @@ class StatefulDecoder(nn.Module):
         self.n_frames = block_size // RATIO
         self.latent_size = meta["latent_size"]
         self.full_latent_size = meta["full_latent_size"]
+        self.fill_shape = (1, self.full_latent_size - self.latent_size,
+                           self.n_frames)
         self.decoder = model.decoder
         self.pqmf = model.pqmf
         self.register_buffer("latent_pca", model.latent_pca.clone())
         self.register_buffer("latent_mean", model.latent_mean.clone())
-        self.register_buffer(
-            "zero_fill",
-            torch.zeros(1, self.full_latent_size - self.latent_size,
-                        self.n_frames))
         self.pqmf._inv_mask = _reverse_half_mask(N_BAND, block_size // N_BAND)
         self.pqmf._rev_idx = torch.arange(N_BAND - 1, -1, -1)
-        self._setup_noise()
         self.registry = StateRegistry([
             ("decoder", model.decoder),
             ("pqmf.inverse_conv", model.pqmf.inverse_conv),
         ])
 
-    def _setup_noise(self):
-        ng = self.decoder.synth.branches[2]
-        target = int(ng.target_size)
-        ng._target_int = target
-        (ng._irfft_small, ng._rfft_C, ng._rfft_S,
-         ng._irfft_C, ng._irfft_S) = _make_dft_matrices(NOISE_BANDS, target)
-        fs = 2 * (NOISE_BANDS - 1)
-        ng._hann = torch.hann_window(fs, dtype=torch.float32)
-        self.noise_gen = ng
-        # noise input shape for one block
-        self.noise_frames = self.block_size // N_BAND // target
-        self.noise_shape = (1, self.noise_frames, N_BAND, target)
-
-    def forward(self, latent, state, noise):
+    def forward(self, latent, state, fill):
         self.registry.scatter(state)
-        self.noise_gen._noise_in = noise
-        z = torch.cat([latent, self.zero_fill], 1)
+        z = torch.cat([latent, fill], 1)
         z = F.conv1d(z, self.latent_pca.t().unsqueeze(-1))
         z = z + self.latent_mean.unsqueeze(-1)
         y = self.decoder(z)
@@ -500,13 +433,13 @@ class StatefulDecoder(nn.Module):
 
 
 class StatefulForward(nn.Module):
-    """Full forward: audio, state, noise -> audio_out, new_state."""
+    """Full forward: audio, state, fill -> audio_out, new_state."""
 
     def __init__(self, model, meta, block_size):
         super().__init__()
         self.enc = StatefulEncoder(model, meta, block_size)
         self.dec = StatefulDecoder(model, meta, block_size)
-        self.noise_shape = self.dec.noise_shape
+        self.fill_shape = self.dec.fill_shape
         self.registry = StateRegistry([
             ("pqmf.forward_conv", model.pqmf.forward_conv),
             ("encoder", model.encoder),
@@ -514,9 +447,8 @@ class StatefulForward(nn.Module):
             ("pqmf.inverse_conv", model.pqmf.inverse_conv),
         ])
 
-    def forward(self, audio, state, noise):
+    def forward(self, audio, state, fill):
         self.registry.scatter(state)
-        self.dec.noise_gen._noise_in = noise
         x = self.enc.pqmf(audio)
         z = self.enc.encoder(x)
         mean, _ = torch.chunk(z, 2, 1)
@@ -524,7 +456,7 @@ class StatefulForward(nn.Module):
         z = F.conv1d(z, self.enc.latent_pca.unsqueeze(-1))
         z = z[:, : self.enc.latent_size]
 
-        z = torch.cat([z, self.dec.zero_fill], 1)
+        z = torch.cat([z, fill], 1)
         z = F.conv1d(z, self.dec.latent_pca.t().unsqueeze(-1))
         z = z + self.dec.latent_mean.unsqueeze(-1)
         y = self.dec.decoder(z)

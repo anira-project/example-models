@@ -1,26 +1,25 @@
 {
   "sample_rate": 44100,
-  "block_size": 2048,
+  "block_size": 128,
   "latent_frames_per_block": 1,
-  "latent_size": 4,
-  "noise_shape": [
+  "latent_size": 2,
+  "fill_shape": [
     1,
-    2,
-    16,
-    64
+    14,
+    1
   ],
-  "noise_note": "uniform in [-1, 1]; graph is deterministic given inputs",
+  "fill_note": "prior sample for the truncated latent dims; zeros = deterministic, N(0,1) = stock behavior",
   "state_sizes": {
-    "encoder": 5888,
-    "decoder": 24384,
-    "forward": 30272
+    "encoder": 7136,
+    "decoder": 154464,
+    "forward": 161600
   },
   "state_layout": {
     "encoder": [
       {
         "name": "pqmf.forward_conv.cache",
         "channels": 1,
-        "length": 512
+        "length": 128
       },
       {
         "name": "encoder.encoder.net.0.cache",
@@ -29,42 +28,27 @@
       },
       {
         "name": "encoder.encoder.net.3.cache",
-        "channels": 32,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.3.downsampling_delay",
-        "channels": 32,
-        "length": 1
+        "channels": 64,
+        "length": 4
       },
       {
         "name": "encoder.encoder.net.6.cache",
-        "channels": 64,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.6.downsampling_delay",
-        "channels": 64,
-        "length": 2
+        "channels": 128,
+        "length": 4
       },
       {
         "name": "encoder.encoder.net.9.cache",
-        "channels": 128,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.9.downsampling_delay",
-        "channels": 128,
-        "length": 2
-      },
-      {
-        "name": "encoder.encoder.net.12.cache",
         "channels": 256,
         "length": 4
       },
       {
-        "name": "encoder.encoder.net.14.cache",
+        "name": "encoder.encoder.net.12.cache",
         "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "encoder.encoder.net.14.cache",
+        "channels": 1024,
         "length": 4
       }
     ],
@@ -76,265 +60,205 @@
       },
       {
         "name": "decoder.net.1.net.1",
-        "channels": 256,
-        "length": 4
+        "channels": 512,
+        "length": 2
       },
       {
         "name": "decoder.net.2.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 2
+        "channels": 512,
+        "length": 6
       },
       {
         "name": "decoder.net.2.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 256,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.2.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 256,
+        "channels": 512,
         "length": 2
       },
       {
         "name": "decoder.net.2.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 6
+        "channels": 512,
+        "length": 18
       },
       {
         "name": "decoder.net.2.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 256,
+        "channels": 512,
         "length": 2
-      },
-      {
-        "name": "decoder.net.2.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 256,
-        "length": 4
       },
       {
         "name": "decoder.net.2.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 10
+        "channels": 512,
+        "length": 54
       },
       {
         "name": "decoder.net.2.net.branches.0.net.2.net.aligned.branches.0.3.cache",
+        "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.2.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 512,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.2.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.3.net.1",
         "channels": 256,
         "length": 2
       },
       {
-        "name": "decoder.net.2.net.branches.0.net.2.net.aligned.paddings.1",
+        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.1.cache",
         "channels": 256,
         "length": 6
       },
       {
-        "name": "decoder.net.3.net.1",
-        "channels": 128,
-        "length": 4
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 2
-      },
-      {
         "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 128,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 128,
+        "channels": 256,
         "length": 2
       },
       {
         "name": "decoder.net.4.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 6
+        "channels": 256,
+        "length": 18
       },
       {
         "name": "decoder.net.4.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 128,
+        "channels": 256,
         "length": 2
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 128,
-        "length": 4
       },
       {
         "name": "decoder.net.4.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 10
+        "channels": 256,
+        "length": 54
       },
       {
         "name": "decoder.net.4.net.branches.0.net.2.net.aligned.branches.0.3.cache",
+        "channels": 256,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.4.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 256,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.4.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 256,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.5.net.1",
         "channels": 128,
         "length": 2
       },
       {
-        "name": "decoder.net.4.net.branches.0.net.2.net.aligned.paddings.1",
+        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.1.cache",
         "channels": 128,
         "length": 6
       },
       {
-        "name": "decoder.net.5.net.1",
-        "channels": 64,
-        "length": 4
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 2
-      },
-      {
         "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 64,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 64,
+        "channels": 128,
         "length": 2
       },
       {
         "name": "decoder.net.6.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 6
+        "channels": 128,
+        "length": 18
       },
       {
         "name": "decoder.net.6.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 64,
+        "channels": 128,
         "length": 2
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 64,
-        "length": 4
       },
       {
         "name": "decoder.net.6.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 10
+        "channels": 128,
+        "length": 54
       },
       {
         "name": "decoder.net.6.net.branches.0.net.2.net.aligned.branches.0.3.cache",
-        "channels": 64,
+        "channels": 128,
         "length": 2
       },
       {
-        "name": "decoder.net.6.net.branches.0.net.2.net.aligned.paddings.1",
-        "channels": 64,
-        "length": 6
+        "name": "decoder.net.6.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 128,
+        "length": 72
       },
       {
-        "name": "decoder.net.7.net.1",
-        "channels": 32,
+        "name": "decoder.net.6.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 128,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.7.net.1.cache",
+        "channels": 128,
         "length": 2
       },
       {
         "name": "decoder.net.8.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 2
+        "channels": 64,
+        "length": 6
       },
       {
         "name": "decoder.net.8.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.8.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 32,
+        "channels": 64,
         "length": 2
       },
       {
         "name": "decoder.net.8.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 6
+        "channels": 64,
+        "length": 18
       },
       {
         "name": "decoder.net.8.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
-      },
-      {
-        "name": "decoder.net.8.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 32,
-        "length": 4
       },
       {
         "name": "decoder.net.8.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 10
+        "channels": 64,
+        "length": 54
       },
       {
         "name": "decoder.net.8.net.branches.0.net.2.net.aligned.branches.0.3.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
       },
       {
-        "name": "decoder.net.8.net.branches.0.net.2.net.aligned.paddings.1",
-        "channels": 32,
-        "length": 6
+        "name": "decoder.net.8.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 64,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.8.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 64,
+        "length": 2
       },
       {
         "name": "decoder.synth.branches.0.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 6
       },
       {
         "name": "decoder.synth.branches.1.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.0.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.0.downsampling_delay",
-        "channels": 32,
-        "length": 3
-      },
-      {
-        "name": "decoder.synth.branches.2.net.2.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.2.downsampling_delay",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.4.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.4.downsampling_delay",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.paddings.0",
-        "channels": 32,
-        "length": 61
-      },
-      {
-        "name": "decoder.synth.paddings.1",
-        "channels": 32,
-        "length": 63
       },
       {
         "name": "pqmf.inverse_conv.cache",
         "channels": 16,
-        "length": 32
+        "length": 8
       }
     ],
     "forward": [
       {
         "name": "pqmf.forward_conv.cache",
         "channels": 1,
-        "length": 512
+        "length": 128
       },
       {
         "name": "encoder.encoder.net.0.cache",
@@ -343,42 +267,27 @@
       },
       {
         "name": "encoder.encoder.net.3.cache",
-        "channels": 32,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.3.downsampling_delay",
-        "channels": 32,
-        "length": 1
+        "channels": 64,
+        "length": 4
       },
       {
         "name": "encoder.encoder.net.6.cache",
-        "channels": 64,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.6.downsampling_delay",
-        "channels": 64,
-        "length": 2
+        "channels": 128,
+        "length": 4
       },
       {
         "name": "encoder.encoder.net.9.cache",
-        "channels": 128,
-        "length": 8
-      },
-      {
-        "name": "encoder.encoder.net.9.downsampling_delay",
-        "channels": 128,
-        "length": 2
-      },
-      {
-        "name": "encoder.encoder.net.12.cache",
         "channels": 256,
         "length": 4
       },
       {
-        "name": "encoder.encoder.net.14.cache",
+        "name": "encoder.encoder.net.12.cache",
         "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "encoder.encoder.net.14.cache",
+        "channels": 1024,
         "length": 4
       },
       {
@@ -388,258 +297,198 @@
       },
       {
         "name": "decoder.net.1.net.1",
-        "channels": 256,
-        "length": 4
+        "channels": 512,
+        "length": 2
       },
       {
         "name": "decoder.net.2.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 2
+        "channels": 512,
+        "length": 6
       },
       {
         "name": "decoder.net.2.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 256,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.2.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 256,
+        "channels": 512,
         "length": 2
       },
       {
         "name": "decoder.net.2.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 6
+        "channels": 512,
+        "length": 18
       },
       {
         "name": "decoder.net.2.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 256,
+        "channels": 512,
         "length": 2
-      },
-      {
-        "name": "decoder.net.2.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 256,
-        "length": 4
       },
       {
         "name": "decoder.net.2.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 256,
-        "length": 10
+        "channels": 512,
+        "length": 54
       },
       {
         "name": "decoder.net.2.net.branches.0.net.2.net.aligned.branches.0.3.cache",
+        "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.2.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 512,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.2.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 512,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.3.net.1",
         "channels": 256,
         "length": 2
       },
       {
-        "name": "decoder.net.2.net.branches.0.net.2.net.aligned.paddings.1",
+        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.1.cache",
         "channels": 256,
         "length": 6
       },
       {
-        "name": "decoder.net.3.net.1",
-        "channels": 128,
-        "length": 4
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 2
-      },
-      {
         "name": "decoder.net.4.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 128,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 128,
+        "channels": 256,
         "length": 2
       },
       {
         "name": "decoder.net.4.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 6
+        "channels": 256,
+        "length": 18
       },
       {
         "name": "decoder.net.4.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 128,
+        "channels": 256,
         "length": 2
-      },
-      {
-        "name": "decoder.net.4.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 128,
-        "length": 4
       },
       {
         "name": "decoder.net.4.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 128,
-        "length": 10
+        "channels": 256,
+        "length": 54
       },
       {
         "name": "decoder.net.4.net.branches.0.net.2.net.aligned.branches.0.3.cache",
+        "channels": 256,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.4.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 256,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.4.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 256,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.5.net.1",
         "channels": 128,
         "length": 2
       },
       {
-        "name": "decoder.net.4.net.branches.0.net.2.net.aligned.paddings.1",
+        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.1.cache",
         "channels": 128,
         "length": 6
       },
       {
-        "name": "decoder.net.5.net.1",
-        "channels": 64,
-        "length": 4
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 2
-      },
-      {
         "name": "decoder.net.6.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 64,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 64,
+        "channels": 128,
         "length": 2
       },
       {
         "name": "decoder.net.6.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 6
+        "channels": 128,
+        "length": 18
       },
       {
         "name": "decoder.net.6.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 64,
+        "channels": 128,
         "length": 2
-      },
-      {
-        "name": "decoder.net.6.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 64,
-        "length": 4
       },
       {
         "name": "decoder.net.6.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 64,
-        "length": 10
+        "channels": 128,
+        "length": 54
       },
       {
         "name": "decoder.net.6.net.branches.0.net.2.net.aligned.branches.0.3.cache",
-        "channels": 64,
+        "channels": 128,
         "length": 2
       },
       {
-        "name": "decoder.net.6.net.branches.0.net.2.net.aligned.paddings.1",
-        "channels": 64,
-        "length": 6
+        "name": "decoder.net.6.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 128,
+        "length": 72
       },
       {
-        "name": "decoder.net.7.net.1",
-        "channels": 32,
+        "name": "decoder.net.6.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 128,
+        "length": 2
+      },
+      {
+        "name": "decoder.net.7.net.1.cache",
+        "channels": 128,
         "length": 2
       },
       {
         "name": "decoder.net.8.net.branches.0.net.0.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 2
+        "channels": 64,
+        "length": 6
       },
       {
         "name": "decoder.net.8.net.branches.0.net.0.net.aligned.branches.0.3.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.net.8.net.branches.0.net.0.net.aligned.paddings.1",
-        "channels": 32,
+        "channels": 64,
         "length": 2
       },
       {
         "name": "decoder.net.8.net.branches.0.net.1.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 6
+        "channels": 64,
+        "length": 18
       },
       {
         "name": "decoder.net.8.net.branches.0.net.1.net.aligned.branches.0.3.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
-      },
-      {
-        "name": "decoder.net.8.net.branches.0.net.1.net.aligned.paddings.1",
-        "channels": 32,
-        "length": 4
       },
       {
         "name": "decoder.net.8.net.branches.0.net.2.net.aligned.branches.0.1.cache",
-        "channels": 32,
-        "length": 10
+        "channels": 64,
+        "length": 54
       },
       {
         "name": "decoder.net.8.net.branches.0.net.2.net.aligned.branches.0.3.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
       },
       {
-        "name": "decoder.net.8.net.branches.0.net.2.net.aligned.paddings.1",
-        "channels": 32,
-        "length": 6
+        "name": "decoder.net.8.net.branches.0.net.3.net.aligned.branches.0.1.cache",
+        "channels": 64,
+        "length": 72
+      },
+      {
+        "name": "decoder.net.8.net.branches.0.net.3.net.aligned.branches.0.3.cache",
+        "channels": 64,
+        "length": 2
       },
       {
         "name": "decoder.synth.branches.0.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 6
       },
       {
         "name": "decoder.synth.branches.1.cache",
-        "channels": 32,
+        "channels": 64,
         "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.0.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.0.downsampling_delay",
-        "channels": 32,
-        "length": 3
-      },
-      {
-        "name": "decoder.synth.branches.2.net.2.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.2.downsampling_delay",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.4.cache",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.branches.2.net.4.downsampling_delay",
-        "channels": 32,
-        "length": 2
-      },
-      {
-        "name": "decoder.synth.paddings.0",
-        "channels": 32,
-        "length": 61
-      },
-      {
-        "name": "decoder.synth.paddings.1",
-        "channels": 32,
-        "length": 63
       },
       {
         "name": "pqmf.inverse_conv.cache",
         "channels": 16,
-        "length": 32
+        "length": 8
       }
     ]
   }

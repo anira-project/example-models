@@ -1,47 +1,66 @@
 # RaveDjembe — RAVE with explicit state (stateless streaming)
 
-Port of `Djembe_deterministic.ts` (RAVE v2.3.1 TorchScript streaming export,
-v1 architecture, variational encoder) to **ONNX Runtime, LiteRT/TFLite and
+Port of `Djembe_streaming.ts` (RAVE v2.3.1 TorchScript streaming export,
+v1 architecture, variational encoder, causal low-latency configuration;
+checkpoint drop `djembe_2_80d99cfa85`) to **ONNX Runtime, LiteRT/TFLite and
 ExecuTorch**, with all streaming state passed in/out as an explicit tensor,
-so stateless runtimes can run block-by-block inference. All three backends
-are parity-verified against the original TorchScript model.
+so stateless runtimes can run block-by-block inference. All backends are
+parity-verified against the original TorchScript model (see the proof chain
+below).
 
 ## Model facts
 
 | | |
 |---|---|
-| architecture | RAVE v1 (PQMF 16 bands, Encoder + Generator with loudness/noise branches) |
+| architecture | RAVE v1 (PQMF 16 bands, Encoder + Generator), causal convolutions |
 | sample rate | 44100, mono |
-| compression ratio | 2048 samples per latent frame |
-| latent size | 4 (PCA-truncated from 16; zero-filled on decode) |
-| determinism | latent path deterministic; decoder noise is an explicit input |
+| compression ratio | 128 samples per latent frame (16x lower latency than the previous Djembe) |
+| latent size | 2 (PCA-truncated from 16) |
+| determinism | encoder emits the variational mean; the decoder's truncated-dims prior sample is the explicit `fill_in` input (zeros = deterministic) |
 
-Hyperparameters recovered from the weights: `capacity=32`, `ratios=[4,4,4,2]`,
-`n_band=16`, `full_latent=16`, noise generator `ratios=[4,4,4], bands=5`,
-`ResidualStack dilations [[1,1],[3,1],[5,1]]`, all convs bias-free (v1.gin).
+Hyperparameters recovered from the weights and the scripted module tree:
+`capacity=64`, `ratios=[2,2,2,1]`, `n_band=16` (129-tap PQMF prototype),
+`full_latent=16`, no noise generator (`use_noise=False`),
+`ResidualStack dilations [[3,1],[9,1],[27,1],[36,1]]`, all convs bias-free,
+causal padding (`cached_conv.get_padding.mode = "causal"` — every branch
+alignment delay is zero, which is where much of the latency drop comes from).
 
 ## Interface (identical across `.onnx` / `.tflite` / `.pte`)
 
-All tensors float32, batch 1, fixed block size 2048 samples:
+All tensors float32, batch 1, fixed block size 128 samples:
 
 ```
-rave_encoder : audio_in [1,1,2048],  state_in [1,5888]                        -> latent_out [1,4,1], state_out
-rave_decoder : latent_in [1,4,1],    state_in [1,24384], noise_in [1,2,16,64] -> audio_out [1,1,2048], state_out
-rave_forward : audio_in [1,1,2048],  state_in [1,30272], noise_in [1,2,16,64] -> audio_out [1,1,2048], state_out
+rave_encoder : audio_in [1,1,128],  state_in [1,7136]                    -> latent_out [1,2,1], state_out
+rave_decoder : latent_in [1,2,1],   state_in [1,154464], fill_in [1,14,1] -> audio_out [1,1,128], state_out
+rave_forward : audio_in [1,1,128],  state_in [1,161600], fill_in [1,14,1] -> audio_out [1,1,128], state_out
 ```
 
 Streaming protocol:
 
 1. start every stream with `state_in = zeros`
 2. each call: pass the previous call's `state_out` as `state_in`
-3. `noise_in`: uniform random in [-1, 1] per call (any RNG; it adds the
-   model's noise texture, ~-34 dB below the signal). Zeros disable the noise
-   branch — output is then fully deterministic from audio alone. The tensor
-   holds exactly one value per output sample.
+3. `fill_in`: the prior sample for the 14 PCA-truncated latent dimensions.
+   Zeros give the deterministic mean-of-prior decode; N(0, 1) noise per call
+   reproduces the stock model's stochastic decode texture.
 
 `models/rave_meta.json` documents the exact state layout (ordered
 `{name, channels, length}` chunks) per model. Multiple independent streams
 can share one session/interpreter — state is fully external.
+
+## Proof chain
+
+The stock export is stochastic (variational sampling in `encode`, prior
+noise in `decode`), so parity is proven in two exact hops:
+
+1. `test_rebuild.py` — the eager rebuild equals the TorchScript export
+   **bit-exactly** with synced RNG draws.
+2. `test_stateful_eager.py` — the explicit-state wrappers equal the eager
+   model **bit-exactly** (mean-encode, explicit fill).
+
+`make_golden.py` then generates golden vectors from the wrappers, and
+`test_onnxruntime.py` / `test_tflite.py` / `test_executorch.py` verify each
+runtime against them (block-by-block, state feedback, interleaved-stream
+statelessness, reproducibility, realtime benchmark).
 
 ## How the state was made explicit
 

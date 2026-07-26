@@ -1,73 +1,84 @@
-"""Generate golden test vectors from the TorchScript reference model.
+"""Generate golden test vectors from the explicit-state wrappers.
 
-Saves all inputs (audio blocks, noise blocks, latents) and reference outputs
-to export/golden/golden.npz so runtime-specific parity tests (TFLite,
-ExecuTorch) can run in their own venvs without loading the .ts file.
-
-RNG note: the reference consumes torch.rand internally for the decoder noise;
-we seed it and generate the identical noise sequence for the explicit
-`noise_in` inputs (same trick as test_onnxruntime.py).
+The proof chain: test_rebuild.py shows the eager rebuild equals the stock
+TorchScript export bit-exactly (RNG-synced); test_stateful_eager.py shows the
+wrappers equal the eager model bit-exactly. The goldens are therefore
+generated from the WRAPPERS (deterministic mean-encode, explicit fill input),
+so runtime-specific parity tests (ONNX Runtime, TFLite, ExecuTorch) can run in
+their own venvs without the .ts file or the rave source.
 """
-import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "rave"))
+
+from stateful_rave import RATIO, build_eager_model, StatefulForward
+
 HERE = Path(__file__).resolve().parent
-TS_PATH = HERE / "Djembe_deterministic.ts"
-META = json.loads((HERE / "models" / "rave_meta.json").read_text())
-BLOCK = META["block_size"]
-NOISE_SHAPE = tuple(META["noise_shape"])
-N_BLOCKS = 16
+BLOCK = RATIO          # one latent frame per call — the export default
+N_BLOCKS = 64
 
 torch.set_grad_enabled(False)
 
 
-def fresh_ts():
-    ts = torch.jit.load(str(TS_PATH), map_location="cpu")
-    for name, buf in ts.named_buffers():
-        if name.endswith(".pad") or name.endswith(".cache"):
-            buf.zero_()
-    return ts
+def make_audio(seed):
+    g = torch.Generator().manual_seed(seed)
+    return (torch.randn(1, 1, N_BLOCKS * BLOCK, generator=g) * 0.3).clamp(-1, 1)
 
 
-def noise_seq(seed):
+def make_fills(shape, seed):
     torch.manual_seed(seed)
-    return np.stack(
-        [(torch.rand(NOISE_SHAPE) * 2 - 1).numpy() for _ in range(N_BLOCKS)])
+    return [torch.randn(shape) for _ in range(N_BLOCKS)]
 
 
 def main():
-    g = torch.Generator().manual_seed(1234)
-    audio = (torch.randn(1, 1, N_BLOCKS * BLOCK, generator=g) * 0.3).clamp(-1, 1)
-    blocks = [audio[..., i * BLOCK:(i + 1) * BLOCK] for i in range(N_BLOCKS)]
+    model, meta = build_eager_model()
+    fwd = StatefulForward(model, meta, BLOCK)
+    enc, dec = fwd.enc, fwd.dec
+    n_frames = BLOCK // RATIO
 
-    # forward reference (seed 42)
-    ts = fresh_ts()
-    torch.manual_seed(42)
-    fwd_ref = torch.cat([ts(b) for b in blocks], -1)
+    audio = make_audio(1234)
+    audio_b = make_audio(2)
+    fills = make_fills(fwd.fill_shape, 42)
+    fills_b = make_fills(fwd.fill_shape, 200)
+    fills_dec = make_fills(fwd.fill_shape, 7)
 
-    # encoder reference
-    ts = fresh_ts()
-    z_ref = torch.cat([ts.encode(b) for b in blocks], -1)
+    def blocks(x):
+        for i in range(N_BLOCKS):
+            yield i, x[..., i * BLOCK:(i + 1) * BLOCK]
 
-    # decoder reference on those latents (seed 7)
-    n_frames = META["latent_frames_per_block"]
-    ts = fresh_ts()
-    torch.manual_seed(7)
-    dec_ref = torch.cat(
-        [ts.decode(z_ref[..., i * n_frames:(i + 1) * n_frames])
-         for i in range(N_BLOCKS)], -1)
+    state = torch.zeros(1, fwd.registry.size)
+    fwd_ref = []
+    for i, b in blocks(audio):
+        y, state = fwd(b, state, fills[i])
+        fwd_ref.append(y)
+    fwd_ref = torch.cat(fwd_ref, -1)
 
-    # second, different stream for the state-isolation (interleaving) test
-    g = torch.Generator().manual_seed(2)
-    audio_b = (torch.randn(1, 1, N_BLOCKS * BLOCK, generator=g) * 0.3).clamp(-1, 1)
-    blocks_b = [audio_b[..., i * BLOCK:(i + 1) * BLOCK] for i in range(N_BLOCKS)]
-    ts = fresh_ts()
-    torch.manual_seed(200)
-    fwd_ref_b = torch.cat([ts(b) for b in blocks_b], -1)
+    state = torch.zeros(1, fwd.registry.size)
+    fwd_ref_b = []
+    for i, b in blocks(audio_b):
+        y, state = fwd(b, state, fills_b[i])
+        fwd_ref_b.append(y)
+    fwd_ref_b = torch.cat(fwd_ref_b, -1)
+
+    state = torch.zeros(1, enc.registry.size)
+    z_ref = []
+    for i, b in blocks(audio):
+        z, state = enc(b, state)
+        z_ref.append(z)
+    z_ref = torch.cat(z_ref, -1)
+
+    state = torch.zeros(1, dec.registry.size)
+    dec_ref = []
+    for i in range(N_BLOCKS):
+        z = z_ref[..., i * n_frames:(i + 1) * n_frames]
+        y, state = dec(z, state, fills_dec[i])
+        dec_ref.append(y)
+    dec_ref = torch.cat(dec_ref, -1)
 
     out = HERE / "golden"
     out.mkdir(exist_ok=True)
@@ -75,11 +86,11 @@ def main():
         out / "golden.npz",
         audio=audio.numpy(),
         audio_b=audio_b.numpy(),
-        noise_fwd_b=noise_seq(200),
-        forward_ref_b=fwd_ref_b.numpy(),
-        noise_fwd=noise_seq(42),
-        noise_dec=noise_seq(7),
+        fill_fwd=np.stack([f.numpy() for f in fills]),
+        fill_fwd_b=np.stack([f.numpy() for f in fills_b]),
+        fill_dec=np.stack([f.numpy() for f in fills_dec]),
         forward_ref=fwd_ref.numpy(),
+        forward_ref_b=fwd_ref_b.numpy(),
         latent_ref=z_ref.numpy(),
         decoder_ref=dec_ref.numpy(),
         block_size=np.int64(BLOCK),

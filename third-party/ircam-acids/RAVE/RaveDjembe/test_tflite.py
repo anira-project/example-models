@@ -55,12 +55,12 @@ def audio_block(arr, i):
                                 dtype=np.float32)
 
 
-def run_forward(m, audio, noises, state_size):
+def run_forward(m, audio, fills, state_size):
     state = np.zeros((1, state_size), np.float32)
     audio_shape = (1, 1, BLOCK)
     out = []
     for i in range(N_BLOCKS):
-        r = m([audio_block(audio, i), state, noises[i]])
+        r = m([audio_block(audio, i), state, fills[i]])
         out.append(r[audio_shape])
         state = r[(1, state_size)]
     return np.concatenate(out, -1), state
@@ -73,7 +73,7 @@ def main():
     m_dec = Model("rave_decoder.tflite")
 
     # forward parity
-    out, _ = run_forward(m_fwd, G["audio"], G["noise_fwd"], sizes["forward"])
+    out, _ = run_forward(m_fwd, G["audio"], G["fill_fwd"], sizes["forward"])
     report("forward: litert vs TorchScript", G["forward_ref"], out)
 
     # encoder parity
@@ -92,7 +92,7 @@ def main():
     for i in range(N_BLOCKS):
         z = np.ascontiguousarray(
             G["latent_ref"][..., i * N_FRAMES:(i + 1) * N_FRAMES])
-        r = m_dec([z, state, G["noise_dec"][i]])
+        r = m_dec([z, state, G["fill_dec"][i]])
         y_out.append(r[(1, 1, BLOCK)])
         state = r[(1, sizes["decoder"])]
     report("decoder: litert vs TorchScript", G["decoder_ref"],
@@ -103,8 +103,8 @@ def main():
     sb = np.zeros((1, sizes["forward"]), np.float32)
     out_a, out_b = [], []
     for i in range(N_BLOCKS):
-        ra = m_fwd([audio_block(G["audio"], i), sa, G["noise_fwd"][i]])
-        rb = m_fwd([audio_block(G["audio_b"], i), sb, G["noise_fwd_b"][i]])
+        ra = m_fwd([audio_block(G["audio"], i), sa, G["fill_fwd"][i]])
+        rb = m_fwd([audio_block(G["audio_b"], i), sb, G["fill_fwd_b"][i]])
         out_a.append(ra[(1, 1, BLOCK)])
         sa = ra[(1, sizes["forward"])]
         out_b.append(rb[(1, 1, BLOCK)])
@@ -116,7 +116,7 @@ def main():
 
     # benchmark
     args = [audio_block(G["audio"], 0),
-            np.zeros((1, sizes["forward"]), np.float32), G["noise_fwd"][0]]
+            np.zeros((1, sizes["forward"]), np.float32), G["fill_fwd"][0]]
     for _ in range(5):
         m_fwd(args)
     t0 = time.perf_counter()

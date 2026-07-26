@@ -1,7 +1,7 @@
 """Export the explicit-state RAVE wrappers to LiteRT (.tflite).
 
 Run inside venv-tflite (litert-torch + its pinned torch). Same interface as
-the ONNX/ExecuTorch exports: state (and decoder noise) are explicit
+the ONNX/ExecuTorch exports: state (and the decoder latent fill) are explicit
 inputs/outputs; feed zeros initially and pass state_out back in.
 
 Usage: python export_tflite.py [--block 2048] [--outdir tflite]
@@ -43,13 +43,13 @@ def main():
 
     audio = torch.zeros(1, 1, a.block)
     latent = torch.zeros(1, meta["latent_size"], n_frames)
-    noise = torch.zeros(*fwd.noise_shape)
+    fill = torch.zeros(*fwd.fill_shape)
 
     convert(enc, (audio, torch.zeros(1, enc.registry.size)),
             a.outdir / "rave_encoder.tflite")
-    convert(dec, (latent, torch.zeros(1, dec.registry.size), noise),
+    convert(dec, (latent, torch.zeros(1, dec.registry.size), fill),
             a.outdir / "rave_decoder.tflite")
-    convert(fwd, (audio, torch.zeros(1, fwd.registry.size), noise),
+    convert(fwd, (audio, torch.zeros(1, fwd.registry.size), fill),
             a.outdir / "rave_forward.tflite")
 
 

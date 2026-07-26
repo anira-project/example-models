@@ -1,7 +1,7 @@
 """Export the explicit-state RAVE wrappers to ExecuTorch (.pte, XNNPACK).
 
 Run inside venv-et (ExecuTorch's pinned torch). Same interface as the ONNX
-models: state (and decoder noise) are explicit inputs/outputs.
+models: state (and the decoder latent fill) are explicit inputs/outputs.
 
 Usage: python export_executorch.py [--block 2048] [--outdir executorch]
 """
@@ -46,13 +46,13 @@ def main():
 
     audio = torch.zeros(1, 1, a.block)
     latent = torch.zeros(1, meta["latent_size"], n_frames)
-    noise = torch.zeros(*fwd.noise_shape)
+    fill = torch.zeros(*fwd.fill_shape)
 
     lower(enc, (audio, torch.zeros(1, enc.registry.size)),
           a.outdir / "rave_encoder.pte")
-    lower(dec, (latent, torch.zeros(1, dec.registry.size), noise),
+    lower(dec, (latent, torch.zeros(1, dec.registry.size), fill),
           a.outdir / "rave_decoder.pte")
-    lower(fwd, (audio, torch.zeros(1, fwd.registry.size), noise),
+    lower(fwd, (audio, torch.zeros(1, fwd.registry.size), fill),
           a.outdir / "rave_forward.pte")
 
 

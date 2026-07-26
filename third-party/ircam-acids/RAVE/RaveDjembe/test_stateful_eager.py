@@ -1,33 +1,37 @@
 """Step 2 check: explicit-state wrappers (eager) == .ts model.
 
-The wrappers carry ALL memory in an explicit flat state tensor. We verify:
-  1. forward parity vs the TorchScript reference (RNG-synced noise)
-  2. encode parity
-  3. decode parity
-  4. statelessness: two interleaved streams through the SAME module instance,
-     each with its own state vector, match two dedicated reference runs.
+The wrappers carry ALL memory in an explicit flat state tensor and are
+deterministic: the encoder emits the variational mean, the decoder takes the
+truncated-dims prior sample as an explicit `fill` input. Parity vs the stock
+(stochastic) TorchScript model is exact when the RNG draws are replicated:
+eps for encode is forced to zero by comparing against a mean-path eager
+reference proven exact in test_rebuild, and the fills are seeded and passed
+explicitly. We verify:
+  1. forward parity vs the RNG-synced eager reference
+  2. encode parity (mean path)
+  3. decode parity (given fills)
+  4. statelessness: two interleaved streams through the SAME module instance
 """
 import sys
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "rave"))
 
-from stateful_rave import (TS_PATH, RATIO, build_eager_model,
+from stateful_rave import (RATIO, build_eager_model,
                            StatefulEncoder, StatefulDecoder, StatefulForward)
 
 torch.set_grad_enabled(False)
-BLOCK = RATIO  # 2048
+BLOCK = 8 * RATIO
 
 
-def fresh_ts():
-    ts = torch.jit.load(str(TS_PATH), map_location="cpu")
-    for name, buf in ts.named_buffers():
+def zero_caches(m):
+    for name, buf in m.named_buffers():
         if name.endswith(".pad") or name.endswith(".cache"):
             buf.zero_()
-    return ts
 
 
 def make_audio(n_blocks, seed):
@@ -35,21 +39,32 @@ def make_audio(n_blocks, seed):
     return (torch.randn(1, 1, n_blocks * BLOCK, generator=g) * 0.3).clamp(-1, 1)
 
 
-def run_ts_forward(ts, audio, seed):
-    torch.manual_seed(seed)
+def eager_reference(model, meta, audio, fills):
+    """Mean-encode + explicit-fill decode, stateful via internal caches."""
+    zero_caches(model)
     out = []
-    for i in range(audio.shape[-1] // BLOCK):
-        out.append(ts(audio[..., i * BLOCK:(i + 1) * BLOCK]))
+    n_blocks = audio.shape[-1] // BLOCK
+    for i in range(n_blocks):
+        x = audio[..., i * BLOCK:(i + 1) * BLOCK]
+        mb = model.pqmf(x)
+        z = model.encoder(mb)
+        mean, _ = torch.chunk(z, 2, 1)
+        z = mean - model.latent_mean.unsqueeze(-1)
+        z = F.conv1d(z, model.latent_pca.unsqueeze(-1))
+        z = z[:, : meta["latent_size"]]
+        z = torch.cat([z, fills[i]], 1)
+        z = F.conv1d(z, model.latent_pca.t().unsqueeze(-1))
+        z = z + model.latent_mean.unsqueeze(-1)
+        y = model.decoder(z)
+        out.append(model.pqmf.inverse(y))
     return torch.cat(out, -1)
 
 
-def run_wrapper_forward(fwd, audio, seed, state=None):
-    torch.manual_seed(seed)
+def run_wrapper_forward(fwd, audio, fills, state=None):
     state = torch.zeros(1, fwd.registry.size) if state is None else state
     out = []
     for i in range(audio.shape[-1] // BLOCK):
-        noise = torch.rand(fwd.noise_shape) * 2 - 1
-        y, state = fwd(audio[..., i * BLOCK:(i + 1) * BLOCK], state, noise)
+        y, state = fwd(audio[..., i * BLOCK:(i + 1) * BLOCK], state, fills[i])
         out.append(y)
     return torch.cat(out, -1), state
 
@@ -61,73 +76,85 @@ def report(name, a, b, tol):
     assert diff < tol, name
 
 
+def make_fills(shape, n_blocks, seed):
+    torch.manual_seed(seed)
+    return [torch.randn(shape) for _ in range(n_blocks)]
+
+
 def main():
     n_blocks = 12
     audio = make_audio(n_blocks, seed=1234)
+    audio_b = make_audio(n_blocks, seed=2)
 
-    model, meta = build_eager_model()
-    fwd = StatefulForward(model, meta, BLOCK)
+    # ---- eager references FIRST: patch_stateful() (triggered by wrapper
+    # construction) globally replaces the cached-conv forwards, after which
+    # the plain eager model can no longer run.
+    model_ref, meta = build_eager_model()
+    n_frames = BLOCK // RATIO
+    fill_shape = (1, meta["full_latent_size"] - meta["latent_size"], n_frames)
+    fills = make_fills(fill_shape, n_blocks, seed=42)
+    fills_b = make_fills(fill_shape, n_blocks, seed=7)
+
+    ref = eager_reference(model_ref, meta, audio, fills)
+    ref_b = eager_reference(model_ref, meta, audio_b, fills_b)
+
+    zero_caches(model_ref)
+    z_ref = []
+    for i in range(n_blocks):
+        x = audio[..., i * BLOCK:(i + 1) * BLOCK]
+        z = model_ref.encoder(model_ref.pqmf(x))
+        mean, _ = torch.chunk(z, 2, 1)
+        z = mean - model_ref.latent_mean.unsqueeze(-1)
+        z = F.conv1d(z, model_ref.latent_pca.unsqueeze(-1))
+        z_ref.append(z[:, : meta["latent_size"]])
+    z_ref = torch.cat(z_ref, -1)
+
+    zero_caches(model_ref)
+    y_ref = []
+    for i in range(n_blocks):
+        z = z_ref[..., i * n_frames:(i + 1) * n_frames]
+        zf = torch.cat([z, fills[i]], 1)
+        zf = F.conv1d(zf, model_ref.latent_pca.t().unsqueeze(-1))
+        zf = zf + model_ref.latent_mean.unsqueeze(-1)
+        y_ref.append(model_ref.pqmf.inverse(model_ref.decoder(zf)))
+    y_ref = torch.cat(y_ref, -1)
+
+    # ---- wrappers (patches the primitives globally)
+    model, meta2 = build_eager_model()
+    fwd = StatefulForward(model, meta2, BLOCK)
+
+    out, _ = run_wrapper_forward(fwd, audio, fills)
+    report("forward: wrapper vs eager reference", ref, out, 1e-5)
+
     enc = fwd.enc
-    dec = fwd.dec
-    print(f"state sizes: forward={fwd.registry.size}, "
-          f"encoder={enc.registry.size}, decoder={dec.registry.size}")
-
-    # 1. forward parity
-    ref = run_ts_forward(fresh_ts(), audio, seed=42)
-    out, _ = run_wrapper_forward(fwd, audio, seed=42)
-    report("forward vs TorchScript", ref, out, 1e-5)
-
-    # 2. encode parity
-    ts = fresh_ts()
-    z_ref = torch.cat(
-        [ts.encode(audio[..., i * BLOCK:(i + 1) * BLOCK])
-         for i in range(n_blocks)], -1)
     state = torch.zeros(1, enc.registry.size)
     z_out = []
     for i in range(n_blocks):
         z, state = enc(audio[..., i * BLOCK:(i + 1) * BLOCK], state)
         z_out.append(z)
-    z_out = torch.cat(z_out, -1)
-    report("encode vs TorchScript", z_ref, z_out, 1e-5)
+    report("encoder: wrapper vs eager reference", z_ref,
+           torch.cat(z_out, -1), 1e-5)
 
-    # 3. decode parity (feed the reference latents)
-    ts = fresh_ts()
-    torch.manual_seed(7)
-    y_ref = torch.cat(
-        [ts.decode(z_ref[..., i:i + 1]) for i in range(n_blocks)], -1)
-    torch.manual_seed(7)
+    dec = fwd.dec
     state = torch.zeros(1, dec.registry.size)
     y_out = []
     for i in range(n_blocks):
-        noise = torch.rand(dec.noise_shape) * 2 - 1
-        y, state = dec(z_ref[..., i:i + 1], state, noise)
+        y, state = dec(z_ref[..., i * n_frames:(i + 1) * n_frames], state,
+                       fills[i])
         y_out.append(y)
-    y_out = torch.cat(y_out, -1)
-    report("decode vs TorchScript", y_ref, y_out, 1e-5)
-
-    # 4. statelessness: interleave two independent streams through ONE module
-    audio_a = make_audio(n_blocks, seed=1)
-    audio_b = make_audio(n_blocks, seed=2)
-    ref_a = run_ts_forward(fresh_ts(), audio_a, seed=100)
-    ref_b = run_ts_forward(fresh_ts(), audio_b, seed=200)
-
-    # pre-generate noise sequences with the same seeds
-    torch.manual_seed(100)
-    noise_a = [torch.rand(fwd.noise_shape) * 2 - 1 for _ in range(n_blocks)]
-    torch.manual_seed(200)
-    noise_b = [torch.rand(fwd.noise_shape) * 2 - 1 for _ in range(n_blocks)]
+    report("decoder: wrapper vs eager reference", y_ref,
+           torch.cat(y_out, -1), 1e-5)
 
     sa = torch.zeros(1, fwd.registry.size)
     sb = torch.zeros(1, fwd.registry.size)
     out_a, out_b = [], []
     for i in range(n_blocks):
-        ya, sa = fwd(audio_a[..., i * BLOCK:(i + 1) * BLOCK], sa, noise_a[i])
-        yb, sb = fwd(audio_b[..., i * BLOCK:(i + 1) * BLOCK], sb, noise_b[i])
+        ya, sa = fwd(audio[..., i * BLOCK:(i + 1) * BLOCK], sa, fills[i])
+        yb, sb = fwd(audio_b[..., i * BLOCK:(i + 1) * BLOCK], sb, fills_b[i])
         out_a.append(ya)
         out_b.append(yb)
-    report("interleaved stream A", ref_a, torch.cat(out_a, -1), 1e-5)
+    report("interleaved stream A", ref, torch.cat(out_a, -1), 1e-5)
     report("interleaved stream B", ref_b, torch.cat(out_b, -1), 1e-5)
-
     print("ALL OK")
 
 

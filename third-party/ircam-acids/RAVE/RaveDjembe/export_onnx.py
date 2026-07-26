@@ -2,8 +2,9 @@
 
 All models are stateless: every call takes `state_in` and returns `state_out`.
 Feed zeros as the initial state; pass the returned state into the next call.
-The decoder additionally takes `noise_in` (uniform noise in [-1, 1]) so the
-graph itself is fully deterministic.
+The decoder additionally takes `fill_in` — the prior sample for the
+PCA-truncated latent dimensions (zeros = deterministic mean-of-prior;
+N(0, 1) noise reproduces the stock model's stochastic decode).
 
 Usage:  python export_onnx.py [--block 2048] [--outdir onnx]
 """
@@ -40,11 +41,11 @@ def export(module, args, input_names, output_names, path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--block", type=int, default=RATIO,
-                    help="audio samples per call (multiple of 2048)")
+                    help="audio samples per call (multiple of 128)")
     ap.add_argument("--outdir", type=Path,
                     default=Path(__file__).resolve().parent / "models")
     a = ap.parse_args()
-    assert a.block % RATIO == 0, "block size must be a multiple of 2048"
+    assert a.block % RATIO == 0, "block size must be a multiple of 128"
     a.outdir.mkdir(parents=True, exist_ok=True)
 
     model, meta = build_eager_model()
@@ -54,16 +55,16 @@ def main():
 
     audio = torch.zeros(1, 1, a.block)
     latent = torch.zeros(1, meta["latent_size"], n_frames)
-    noise = torch.zeros(*fwd.noise_shape)
+    fill = torch.zeros(*fwd.fill_shape)
 
     export(enc, (audio, torch.zeros(1, enc.registry.size)),
            ["audio_in", "state_in"], ["latent_out", "state_out"],
            a.outdir / "rave_encoder.onnx")
-    export(dec, (latent, torch.zeros(1, dec.registry.size), noise),
-           ["latent_in", "state_in", "noise_in"], ["audio_out", "state_out"],
+    export(dec, (latent, torch.zeros(1, dec.registry.size), fill),
+           ["latent_in", "state_in", "fill_in"], ["audio_out", "state_out"],
            a.outdir / "rave_decoder.onnx")
-    export(fwd, (audio, torch.zeros(1, fwd.registry.size), noise),
-           ["audio_in", "state_in", "noise_in"], ["audio_out", "state_out"],
+    export(fwd, (audio, torch.zeros(1, fwd.registry.size), fill),
+           ["audio_in", "state_in", "fill_in"], ["audio_out", "state_out"],
            a.outdir / "rave_forward.onnx")
 
     info = {
@@ -71,8 +72,9 @@ def main():
         "block_size": a.block,
         "latent_frames_per_block": n_frames,
         "latent_size": meta["latent_size"],
-        "noise_shape": list(fwd.noise_shape),
-        "noise_note": "uniform in [-1, 1]; graph is deterministic given inputs",
+        "fill_shape": list(fwd.fill_shape),
+        "fill_note": "prior sample for the truncated latent dims; "
+                     "zeros = deterministic, N(0,1) = stock behavior",
         "state_sizes": {
             "encoder": enc.registry.size,
             "decoder": dec.registry.size,

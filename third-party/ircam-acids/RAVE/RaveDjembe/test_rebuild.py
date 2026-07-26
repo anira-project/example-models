@@ -1,7 +1,10 @@
 """Step 1 check: eager rebuild (with original cached-conv buffers) == .ts model.
 
-Runs the same chunked audio through the TorchScript reference and the rebuilt
-eager model (both starting from zeroed caches, RNG synced) and compares.
+The stock export is stochastic: encode samples mean + eps * std
+(randn_like) and decode fills the truncated latent dims with randn. With a
+synced seed the eager chain draws the SAME numbers in the SAME order, so
+parity here is exact — proving weights, structure, causal padding and the
+latent glue all match.
 """
 import sys
 from pathlib import Path
@@ -17,66 +20,58 @@ from stateful_rave import TS_PATH, RATIO, build_eager_model
 torch.set_grad_enabled(False)
 
 
-def zero_caches_ts(m):
+def zero_caches(m):
     for name, buf in m.named_buffers():
         if name.endswith(".pad") or name.endswith(".cache"):
             buf.zero_()
 
 
-def zero_caches_eager(m):
-    for name, buf in m.named_buffers():
-        if name.endswith(".pad") or name.endswith(".cache"):
-            buf.zero_()
-
-
-def eager_forward(model, meta, x):
-    """Replicates VariationalScriptedRAVE.forward (deterministic variant)."""
+def eager_forward_stochastic(model, meta, x):
+    """Replicates VariationalScriptedRAVE.forward including its RNG draws."""
     mb = model.pqmf(x)
     z = model.encoder(mb)
-    mean, _ = torch.chunk(z, 2, 1)
-    z = mean - model.latent_mean.unsqueeze(-1)
+    mean, scale = torch.chunk(z, 2, 1)
+    std = torch.nn.functional.softplus(scale) + 1e-4
+    z = mean + torch.randn_like(mean) * std          # draw 1 (encode)
+    z = z - model.latent_mean.unsqueeze(-1)
     z = F.conv1d(z, model.latent_pca.unsqueeze(-1))
     z = z[:, : meta["latent_size"]]
 
-    zeros = torch.zeros(1, meta["full_latent_size"] - z.shape[1], z.shape[-1])
-    z = torch.cat([z, zeros], 1)
+    fill = torch.randn(1, meta["full_latent_size"] - z.shape[1],
+                       z.shape[-1])                  # draw 2 (decode)
+    z = torch.cat([z, fill], 1)
     z = F.conv1d(z, model.latent_pca.t().unsqueeze(-1))
     z = z + model.latent_mean.unsqueeze(-1)
     y = model.decoder(z)
-    audio = model.pqmf.inverse(y)
-    return audio
+    return model.pqmf.inverse(y)
 
 
 def main():
     n_blocks = 8
-    block = RATIO  # 2048
-    torch.manual_seed(1234)
-    audio = (torch.randn(1, 1, n_blocks * block) * 0.3).clamp(-1, 1)
+    block = 8 * RATIO
+    g = torch.Generator().manual_seed(1234)
+    audio = (torch.randn(1, 1, n_blocks * block, generator=g) * 0.3).clamp(-1, 1)
 
-    # reference
     ts = torch.jit.load(str(TS_PATH), map_location="cpu")
-    zero_caches_ts(ts)
+    zero_caches(ts)
     torch.manual_seed(42)
-    ref = []
-    for i in range(n_blocks):
-        ref.append(ts(audio[..., i * block:(i + 1) * block]))
-    ref = torch.cat(ref, -1)
+    ref = torch.cat(
+        [ts(audio[..., i * block:(i + 1) * block]) for i in range(n_blocks)], -1)
 
-    # eager rebuild
     model, meta = build_eager_model()
-    zero_caches_eager(model)
+    zero_caches(model)
     torch.manual_seed(42)
-    out = []
-    for i in range(n_blocks):
-        out.append(eager_forward(model, meta, audio[..., i * block:(i + 1) * block]))
-    out = torch.cat(out, -1)
+    out = torch.cat(
+        [eager_forward_stochastic(model, meta,
+                                  audio[..., i * block:(i + 1) * block])
+         for i in range(n_blocks)], -1)
 
     diff = (ref - out).abs()
     print(f"ref rms      : {ref.pow(2).mean().sqrt():.6f}")
     print(f"max abs diff : {diff.max():.3e}")
     print(f"mean abs diff: {diff.mean():.3e}")
     assert diff.max() < 1e-5, "REBUILD MISMATCH"
-    print("OK: eager rebuild matches TorchScript reference")
+    print("OK: eager rebuild matches TorchScript reference (RNG-synced)")
 
 
 if __name__ == "__main__":
