@@ -21,7 +21,13 @@ TOL = 1e-5
 
 
 def session(name):
-    return ort.InferenceSession(str(HERE / "models" / name),
+    # Single-threaded, matching how anira pins every backend in production —
+    # ORT's default intra-op pool would make the benchmark ~3x faster and
+    # unrepresentative.
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1
+    opts.inter_op_num_threads = 1
+    return ort.InferenceSession(str(HERE / "models" / name), opts,
                                 providers=["CPUExecutionProvider"])
 
 

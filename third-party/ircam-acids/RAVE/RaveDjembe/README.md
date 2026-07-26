@@ -87,7 +87,7 @@ random, no dynamic shapes.
 | encoder (latents \|z\|≈50) | 4.2e-06 | 4.2e-06 | 5.9e-06 |
 | decoder | 3.5e-06 | 3.1e-06 | 3.1e-06 |
 | 2 interleaved streams, 1 session | ≤8.9e-06 | ≤1.0e-05 | ≤6.3e-06 |
-| ms / 1024-sample block (budget 23.2) | 1.9 (12×) | 8.2 (2.8×) | 8.3 (2.8×) |
+| ms / 1024-sample block, 1 thread (budget 23.2) | 6.1 (3.8×) | 8.2 (2.8×) | 8.3 (2.8×) |
 
 ## Files and licensing
 
