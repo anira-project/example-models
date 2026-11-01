@@ -28,6 +28,16 @@ This repository contains example models for the [anira](https://github.com/anira
     - The `serving_default` signature keeps the declared mapping: `args_0` = `state_in`, `args_0_1` = `data`, `output_0` = `processed_data`, `output_1` = `state_out`.
   - **Formats**: Each channel count is exported to TorchScript (`.pt`), ONNX (`.onnx`), TFLite (`.tflite`), and ExecuTorch (`.pte`). The build script prints the tensor order of the ONNX and TFLite files, then runs the saved TorchScript trace and every export with `N = 10` and `N = 64` over three consecutive blocks, with the state fed back and without, and asserts the expectation above with exact equality.
 
+- **`TypedGainNetwork`**: This folder contains the `SimpleGainNetwork` tensor set at other dtypes than float32, designed to validate that model tensors of any dtype travel end to end through a runtime. The models compute in float32 and cast at the boundary (`processed_data = Cast(Cast(data, float32) * Cast(gain, float32), <dtype>)`), so every runtime needs only a Cast for the boundary dtype, and with small integer-valued inputs and a gain of 2 every output is exact. It includes:
+  - **`typed_gain_network_<dtype>`**, `<dtype>` one of `int16`, `int8`, `float16`, mono:
+    - **Inputs**: `data` `[1, 1, N]` (`N` dynamic) and `gain` `[1]` (`[1, 1, 1]` in the TFLite file), both of `<dtype>`.
+    - **Outputs**: `processed_data` `[1, 1, N]` and `peak` `[1]` (the largest absolute sample), both of `<dtype>`.
+    - **Formats**: TorchScript (`.pt`), ONNX (`.onnx`), TFLite (`.tflite`, no quantisation parameters on any tensor) and ExecuTorch (`.pte`). The TFLite files order their tensors as `SimpleGainNetwork`'s: input 0 is `data` (`serving_default_args_0:0`), input 1 `gain`.
+  - **`typed_gain_network_<dtype>_unplanned.pte`**: the same method at a static `[1, 1, 512]` window with its inputs and outputs left out of ExecuTorch's memory plan (`MemoryPlanningPass(alloc_graph_input=False, alloc_graph_output=False)`), so a runtime binds its caller's memory to them instead of copying: `Method::set_input` aliases the input, `Method::set_output_data_ptr` takes the output buffer. The window is static because `set_output_data_ptr` takes a buffer of the output's full capacity, which a dynamic axis would make its upper bound (65536 samples).
+  - **`dtype_matrix_<dtype>.onnx`**, for the ten dtypes `float32`, `float64`, `float16`, `bfloat16`, `int8`, `uint8`, `int16`, `int32`, `int64`, `bool`: one input `data` `[1, 1, N]` and one output `processed_data` of that dtype, `processed_data = Cast(Cast(data, float32) * 2, <dtype>)` (a `bool` input comes back unchanged), written with `onnx.helper` (opset 17, IR version 8).
+  - **`quantized_gain_network_int8.tflite`**: a fully integer TFLite model, `y = 0.5 * x` on `[1, 1, 64]`, whose input and output are `int8` tensors with a scale and a zero point (quantised I/O, for a consumer's refusal of it).
+  - **Checks**: the build script runs every file in its runtime and asserts exact equality with the expectation (the unplanned `.pte` at its 512-sample window, the quantised model by its tensor types, its parameters and one inference within a quantisation step).
+
 - **`RaveDjembe`**: A RAVE neural audio codec (v1 architecture, 44.1 kHz mono, trained on djembe) ported from its TorchScript streaming export to **ONNX Runtime, LiteRT/TFLite and ExecuTorch** with all streaming state passed as explicit input/output tensors, so stateless runtimes can run real-time block-by-block inference. Ships separate encoder / decoder / forward models per format, parity tests against golden reference vectors, and the full export pipeline. See [`third-party/ircam-acids/RAVE/RaveDjembe/README.md`](third-party/ircam-acids/RAVE/RaveDjembe/README.md).
 
 To (re)generate the `SimpleGainNetwork` models:
@@ -47,4 +57,13 @@ python StatefulAccumulatorNetwork/stateful_accumulator_network.py
 ```
 
 By default this builds the `(1, 2)` channel set. The `.pte` export is skipped when `executorch` is not installed. The committed files were produced and verified with Python 3.12.14 on Linux aarch64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0 (its bundled TFLite converter and interpreter), executorch 1.5.0 and numpy 2.5.3.
+
+To (re)generate the `TypedGainNetwork` models:
+
+```bash
+pip install -r requirements.txt
+python TypedGainNetwork/typed_gain_network.py
+```
+
+The `.pte` exports are skipped when `executorch` is not installed. TensorFlow's graph optimizer, which the quantised conversion runs, fails on a machine whose CUDA libraries are present but do not load; run the script with `CUDA_VISIBLE_DEVICES=-1` there. The committed files were produced and verified with Python 3.12 on Linux x86_64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0, executorch 1.5.0 and numpy 2.5.3, and each loads and runs exactly in anira's pinned runtimes (ONNX Runtime 1.26.0, TFLite 2.17.0, LibTorch 2.12.0, ExecuTorch 1.3.1).
 
