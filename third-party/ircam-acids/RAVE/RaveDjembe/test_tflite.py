@@ -1,7 +1,7 @@
 """LiteRT/TFLite parity harness: golden PyTorch reference vs .tflite.
 
 Runs block-by-block with explicit state feedback against the golden vectors
-from make_golden.py (original TorchScript model). Run inside venv-tflite.
+from make_golden.py (original TorchScript model). Run with `uv run --group rave`.
 
 Input/output tensors are matched by shape (audio / state / noise / latent all
 have distinct shapes), so converter-assigned names don't matter.

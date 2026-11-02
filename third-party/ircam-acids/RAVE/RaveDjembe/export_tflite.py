@@ -1,6 +1,6 @@
 """Export the explicit-state RAVE wrappers to LiteRT (.tflite).
 
-Run inside venv-tflite (litert-torch + its pinned torch). Same interface as
+Run with `uv run --group rave --group rave-tflite-export`. Same interface as
 the ONNX/ExecuTorch exports: state (and the decoder latent fill) are explicit
 inputs/outputs; feed zeros initially and pass state_out back in.
 

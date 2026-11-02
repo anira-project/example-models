@@ -105,36 +105,31 @@ export/test code in this directory is covered by the repository license.
 
 ## Regenerating / testing
 
-Each toolchain pins its own torch, so three venvs. Regeneration additionally
-needs the RAVE source cloned into this directory:
+The environment is the repository's uv project (`pyproject.toml` at the
+repository root; `uv run` finds it from this directory). Its base
+dependencies already pin torch to the release the ExecuTorch wheels are built
+against, so one environment with the `rave` dependency group covers the ONNX
+and ExecuTorch exports, the golden vectors and the parity tests of all three
+runtimes. Only the LiteRT export needs `litert-torch` (formerly
+ai-edge-torch), in the separate `rave-tflite-export` group: it depends on
+`litert-converter`, which ships wheels for Linux x86_64 and macOS arm64 only.
+Regeneration additionally needs the RAVE source cloned into this directory:
 
 ```bash
-cd RaveDjembe
+cd third-party/ircam-acids/RAVE/RaveDjembe
 git clone https://github.com/acids-ircam/RAVE rave   # v2.3.1-era blocks.py/pqmf.py
 
-# ONNX + golden vectors — any recent python
-python3 -m venv venv
-./venv/bin/pip install torch onnx onnxruntime "cached-conv>=2.5.0" \
-    gin-config einops numpy scipy
-./venv/bin/python test_rebuild.py          # eager rebuild == .ts (bit-exact)
-./venv/bin/python test_stateful_eager.py   # explicit-state wrappers == .ts
-./venv/bin/python export_onnx.py           # writes models/*.onnx + rave_meta.json
-./venv/bin/python test_onnxruntime.py
-./venv/bin/python make_golden.py           # golden/golden.npz for the other venvs
+uv run --group rave python test_rebuild.py          # eager rebuild == .ts (bit-exact)
+uv run --group rave python test_stateful_eager.py   # explicit-state wrappers == .ts
+uv run --group rave python export_onnx.py           # writes models/*.onnx + rave_meta.json
+uv run --group rave python test_onnxruntime.py
+uv run --group rave python make_golden.py           # golden/golden.npz
+uv run --group rave python export_executorch.py     # writes models/*.pte (XNNPACK)
+uv run --group rave python test_executorch.py
 
-# ExecuTorch — python 3.10-3.12; torch pinned to match the executorch wheel ABI
-python3.10 -m venv venv-et
-./venv-et/bin/pip install executorch "torch==2.12.*" "cached-conv>=2.5.0" \
-    gin-config einops scipy
-./venv-et/bin/python export_executorch.py  # writes models/*.pte (XNNPACK)
-./venv-et/bin/python test_executorch.py
-
-# LiteRT — python 3.10-3.12 (litert-torch, formerly ai-edge-torch)
-python3.10 -m venv venv-tflite
-./venv-tflite/bin/pip install litert-torch "cached-conv>=2.5.0" gin-config \
-    einops scipy
-./venv-tflite/bin/python export_tflite.py  # writes models/*.tflite
-./venv-tflite/bin/python test_tflite.py
+# LiteRT export: Linux x86_64 or macOS arm64 only
+uv run --group rave --group rave-tflite-export python export_tflite.py  # writes models/*.tflite
+uv run --group rave python test_tflite.py
 ```
 
 Running only the parity tests (not regenerating) needs neither the RAVE

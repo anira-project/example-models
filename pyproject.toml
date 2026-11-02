@@ -1,0 +1,51 @@
+[project]
+name = "anira-example-models"
+version = "0.1.0"
+description = "Example models for the anira real-time inference library, with the scripts that export and cross-check them."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    # The ExecuTorch wheels are built against one torch release but do not declare it,
+    # so the pair is pinned here: executorch 1.5.x <-> torch 2.14 (torch_pin.py at v1.5.1).
+    "torch==2.14.*",
+    "executorch==1.5.*",
+    "numpy",
+    "onnx",
+    "onnxruntime",
+    "onnxscript",
+    "tensorflow",
+]
+
+[dependency-groups]
+# third-party/ircam-acids/RAVE/RaveDjembe: the ONNX and ExecuTorch exports, the golden
+# vectors and the parity tests of all three runtimes. Regenerating also needs the RAVE
+# source cloned into that directory (see its README).
+rave = [
+    "cached-conv>=2.5.0",
+    "gin-config",
+    "einops",
+    "scipy",
+    "ai-edge-litert",
+]
+# RaveDjembe/export_tflite.py only. litert-torch needs litert-converter, which ships
+# wheels for Linux x86_64 and macOS arm64 only (none for Linux aarch64 or Windows).
+rave-tflite-export = [
+    "litert-torch",
+]
+
+[tool.uv]
+# A collection of scripts, not an installable package.
+package = false
+
+# CPU-only torch: PyPI's Linux x86_64 and Windows wheels pull in CUDA, the macOS and
+# Linux aarch64 ones are CPU builds already.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

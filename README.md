@@ -40,11 +40,20 @@ This repository contains example models for the [anira](https://github.com/anira
 
 - **`RaveDjembe`**: A RAVE neural audio codec (v1 architecture, 44.1 kHz mono, trained on djembe) ported from its TorchScript streaming export to **ONNX Runtime, LiteRT/TFLite and ExecuTorch** with all streaming state passed as explicit input/output tensors, so stateless runtimes can run real-time block-by-block inference. Ships separate encoder / decoder / forward models per format, parity tests against golden reference vectors, and the full export pipeline. See [`third-party/ircam-acids/RAVE/RaveDjembe/README.md`](third-party/ircam-acids/RAVE/RaveDjembe/README.md).
 
+## Regenerating the models
+
+The Python environment is managed with [uv](https://docs.astral.sh/uv/): `pyproject.toml` declares it, `uv.lock` pins every package and `.python-version` selects Python 3.12. Create it with:
+
+```bash
+uv sync
+```
+
+This installs a CPU build of torch, onnx, onnxruntime, onnxscript, tensorflow and executorch. torch and executorch are pinned as a pair (torch 2.14 with executorch 1.5), because the ExecuTorch wheels are built against one torch release without declaring it. `uv run` syncs the environment on its own, so the `uv sync` step is optional. The `RaveDjembe` scripts need the `rave` dependency group on top, see its README.
+
 To (re)generate the `SimpleGainNetwork` models:
 
 ```bash
-pip install -r requirements.txt
-python SimpleGainNetwork/simple_gain_network.py
+uv run python SimpleGainNetwork/simple_gain_network.py
 ```
 
 By default this builds the `(1, 2, 4, 16)` channel set; edit the `channel_counts` argument to `main()` to change it.
@@ -52,8 +61,7 @@ By default this builds the `(1, 2, 4, 16)` channel set; edit the `channel_counts
 To (re)generate the `StatefulAccumulatorNetwork` models:
 
 ```bash
-pip install -r requirements.txt
-python StatefulAccumulatorNetwork/stateful_accumulator_network.py
+uv run python StatefulAccumulatorNetwork/stateful_accumulator_network.py
 ```
 
 By default this builds the `(1, 2)` channel set. The `.pte` export is skipped when `executorch` is not installed. The committed files were produced and verified with Python 3.12.14 on Linux aarch64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0 (its bundled TFLite converter and interpreter), executorch 1.5.0 and numpy 2.5.3.
@@ -61,8 +69,7 @@ By default this builds the `(1, 2)` channel set. The `.pte` export is skipped wh
 To (re)generate the `TypedGainNetwork` models:
 
 ```bash
-pip install -r requirements.txt
-python TypedGainNetwork/typed_gain_network.py
+uv run python TypedGainNetwork/typed_gain_network.py
 ```
 
 The `.pte` exports are skipped when `executorch` is not installed. TensorFlow's graph optimizer, which the quantised conversion runs, fails on a machine whose CUDA libraries are present but do not load; run the script with `CUDA_VISIBLE_DEVICES=-1` there. The committed files were produced and verified with Python 3.12 on Linux x86_64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0, executorch 1.5.0 and numpy 2.5.3, and each loads and runs exactly in anira's pinned runtimes (ONNX Runtime 1.26.0, TFLite 2.17.0, LibTorch 2.12.0, ExecuTorch 1.3.1).

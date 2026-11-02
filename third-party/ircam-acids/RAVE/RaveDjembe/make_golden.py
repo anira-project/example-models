@@ -5,7 +5,7 @@ TorchScript export bit-exactly (RNG-synced); test_stateful_eager.py shows the
 wrappers equal the eager model bit-exactly. The goldens are therefore
 generated from the WRAPPERS (deterministic mean-encode, explicit fill input),
 so runtime-specific parity tests (ONNX Runtime, TFLite, ExecuTorch) can run in
-their own venvs without the .ts file or the rave source.
+their own environments without the .ts file or the rave source.
 """
 import sys
 from pathlib import Path

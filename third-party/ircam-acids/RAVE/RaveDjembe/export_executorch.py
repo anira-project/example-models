@@ -1,6 +1,6 @@
 """Export the explicit-state RAVE wrappers to ExecuTorch (.pte, XNNPACK).
 
-Run inside venv-et (ExecuTorch's pinned torch). Same interface as the ONNX
+Run with `uv run --group rave` (see README.md). Same interface as the ONNX
 models: state (and the decoder latent fill) are explicit inputs/outputs.
 
 Usage: python export_executorch.py [--block 2048] [--outdir executorch]
