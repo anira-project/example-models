@@ -26,7 +26,11 @@ This repository contains example models for the [anira](https://github.com/anira
     - input 0: `state_in` (`serving_default_args_0:0`, `[1, C, 2]`), input 1: `data` (`serving_default_args_0_1:0`, `[1, C, -1]`)
     - output 0: `state_out` (`PartitionedCall:1`, `[1, C, 2]`), output 1: `processed_data` (`PartitionedCall:0`, `[1, C, -1]`)
     - The `serving_default` signature keeps the declared mapping: `args_0` = `state_in`, `args_0_1` = `data`, `output_0` = `processed_data`, `output_1` = `state_out`.
-  - **Formats**: Each channel count is exported to TorchScript (`.pt`), ONNX (`.onnx`), TFLite (`.tflite`), and ExecuTorch (`.pte`). The build script prints the tensor order of the ONNX and TFLite files, then runs the saved TorchScript trace and every export with `N = 10` and `N = 64` over three consecutive blocks, with the state fed back and without, and asserts the expectation above with exact equality.
+  - **Formats**: Each channel count is exported to TorchScript (`.pt`), ONNX (`.onnx`), TFLite (`.tflite`), and ExecuTorch (`.pte`). The build script prints the tensors each file reports, then runs the saved TorchScript trace and every export with `N = 10` and `N = 64` over three consecutive blocks, with the state fed back and without, and asserts the expectation above with exact equality.
+  - **Negated twin** (`stateful_accumulator_network_negated_mono` and `_stereo`): a second model of exactly this tensor set, designed to validate switching between the models of one form while a stream runs. It differs in one rule: `processed_data[0, c, n] = data[0, c, n] - state_in[0, c, 0]`, it subtracts the running sum where the accumulator adds it. `state_out` follows the accumulator's rule, so the state after a block does not depend on which of the two models ran which block, and either model continues from the other's `state_out`.
+    - **Expectation**: Alone, with the state fed back, the output of block `k` is its input minus the sum of every sample of the blocks `0..k-1`, and the counter reads `k + 1`. When a consumer changes the model before block `k` and keeps the state, block `k` is its input plus (accumulator) or minus (twin) that same sum, and the counter goes on to `k + 1`; when the model that takes over starts from a zero state instead, block `k` equals its input and the counter reads `1`. So the sign of the running sum in `processed_data` tells which model ran a block, and its size and the counter tell whether the state was kept. While the running sum is zero (the first block after a zero state) the two models agree.
+    - **Tensor order per format**: the accumulator's in every format, names included (the ONNX names, the TFLite positions, tensor names and signature keys listed above). The ONNX and TFLite graphs differ from the accumulator's in one operator (`Sub` for `Add`).
+    - **Formats**: the same four per channel count. The build script asserts that the twin reports the accumulator's tensors in every format, runs the twin through the checks of the accumulator, and runs the five-block sequence accumulator, accumulator, twin, twin, accumulator in every runtime with both files of that runtime, once with the state kept at each switch and once with a zero state at each switch, all with exact equality.
 
 - **`TypedGainNetwork`**: This folder contains the `SimpleGainNetwork` tensor set at other dtypes than float32, designed to validate that model tensors of any dtype travel end to end through a runtime. The models compute in float32 and cast at the boundary (`processed_data = Cast(Cast(data, float32) * Cast(gain, float32), <dtype>)`), so every runtime needs only a Cast for the boundary dtype, and with small integer-valued inputs and a gain of 2 every output is exact. It includes:
   - **`typed_gain_network_<dtype>`**, `<dtype>` one of `int16`, `int8`, `float16`, mono:
@@ -37,6 +41,18 @@ This repository contains example models for the [anira](https://github.com/anira
   - **`dtype_matrix_<dtype>.onnx`**, for the ten dtypes `float32`, `float64`, `float16`, `bfloat16`, `int8`, `uint8`, `int16`, `int32`, `int64`, `bool`: one input `data` `[1, 1, N]` and one output `processed_data` of that dtype, `processed_data = Cast(Cast(data, float32) * 2, <dtype>)` (a `bool` input comes back unchanged), written with `onnx.helper` (opset 17, IR version 8).
   - **`quantized_gain_network_int8.tflite`**: a fully integer TFLite model, `y = 0.5 * x` on `[1, 1, 64]`, whose input and output are `int8` tensors with a scale and a zero point (quantised I/O, for a consumer's refusal of it).
   - **Checks**: the build script runs every file in its runtime and asserts exact equality with the expectation (the unplanned `.pte` at its 512-sample window, the quantised model by its tensor types, its parameters and one inference within a quantisation step).
+
+- **`VariantGainNetwork`**: This folder contains three models of **one architecture with different weights**, designed to validate switching between the models of one form while a stream runs: they report identical tensors (names, order, shapes, dtypes) and differ only in what they compute. The architecture is one `Conv1d(1, 1, kernel_size=1, bias=False)`, and its single weight is all that a variant sets. It includes:
+  - **`variant_gain_network_<variant>_mono`**, `<variant>` one of `half` (weight `0.5`), `double` (weight `2.0`), `invert` (weight `-1.0`):
+    - **Input**: `data`, float32 `[1, 1, N]`. `N` is dynamic.
+    - **Output**: `processed_data`, float32 `[1, 1, N]`, with `processed_data[0, 0, n] = w * data[0, 0, n]`.
+  - **Expectation**: Every weight is a power of two or `-1`, so `w * data` is exact in float32 for every sample, not only for integer-valued ones, and in every runtime. A consumer tells from any non-zero block which of the three models produced it.
+  - **Tensors per format**: identical for the three variants.
+    - TorchScript: one argument `data`, one tensor returned (no tuple); the weight is the parameter `conv.weight` `[1, 1, 1]`.
+    - ONNX: input `data` `[1, 1, dynamic]`, output `processed_data` `[1, 1, dynamic]`; one `Conv` node with the initializer `conv.weight`.
+    - TFLite: input 0 is `data` (`serving_default_args_0:0`, `[1, 1, -1]`), output 0 is `processed_data` (`PartitionedCall:0`, `[1, 1, -1]`); the `serving_default` signature names them `args_0` and `output_0`. The file convolves in TensorFlow's `[batch, time, channel]` layout between two transposes (`TRANSPOSE`, `EXPAND_DIMS`, `CONV_2D`, `RESHAPE`, `TRANSPOSE`).
+    - ExecuTorch: the method `forward` with one input and one output; the dynamic axis reads as its upper bound, `[1, 1, 65536]`.
+  - **Formats**: Each variant is exported to TorchScript (`.pt`), ONNX (`.onnx`), TFLite (`.tflite`), and ExecuTorch (`.pte`). The ONNX, TFLite and ExecuTorch files of two variants differ in the bytes of the weight alone. The build script asserts that the three variants of a format report identical tensors, then runs the saved TorchScript trace and every export with `N = 10`, `N = 64` and `N = 512`, on integer-valued and on fractional samples, and asserts `processed_data == w * data` with exact equality.
 
 - **`RaveDjembe`**: A RAVE neural audio codec (v1 architecture, 44.1 kHz mono, trained on djembe) ported from its TorchScript streaming export to **ONNX Runtime, LiteRT/TFLite and ExecuTorch** with all streaming state passed as explicit input/output tensors, so stateless runtimes can run real-time block-by-block inference. Ships separate encoder / decoder / forward models per format, parity tests against golden reference vectors, and the full export pipeline. See [`third-party/ircam-acids/RAVE/RaveDjembe/README.md`](third-party/ircam-acids/RAVE/RaveDjembe/README.md).
 
@@ -64,7 +80,9 @@ To (re)generate the `StatefulAccumulatorNetwork` models:
 uv run python StatefulAccumulatorNetwork/stateful_accumulator_network.py
 ```
 
-By default this builds the `(1, 2)` channel set. The `.pte` export is skipped when `executorch` is not installed. The committed files were produced and verified with Python 3.12.14 on Linux aarch64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0 (its bundled TFLite converter and interpreter), executorch 1.5.0 and numpy 2.5.3.
+By default this builds the `(1, 2)` channel set, the accumulator and its negated twin for each. The `.pte` export is skipped when `executorch` is not installed. The committed accumulator files were produced and verified with Python 3.12.14 on Linux aarch64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0 (its bundled TFLite converter and interpreter), executorch 1.5.0 and numpy 2.5.3.
+
+The committed files of the negated twin were produced and verified with Python 3.12.13 on Linux x86_64, with the versions `uv.lock` pins: torch 2.14.1 (CPU build), onnx 1.23.2, onnxruntime 1.31.1, onnxscript 0.7.2, tensorflow 2.21.0, executorch 1.5.1 and numpy 2.5.4. That run rebuilt the accumulator's `.tflite` and `.pte` files byte for byte. Its `.onnx` and `.pt` files do not rebuild to the byte (the ONNX file records the torch version, the TorchScript file a serialization id and the source positions of the script), so the committed ones were kept and the twin was verified against them. Both models also run exactly, alone and switched, in the Python builds of the runtime versions anira pins (onnxruntime 1.26.0, the TFLite interpreter of tensorflow 2.17.0, torch 2.12.0, executorch 1.3.1).
 
 To (re)generate the `TypedGainNetwork` models:
 
@@ -73,4 +91,12 @@ uv run python TypedGainNetwork/typed_gain_network.py
 ```
 
 The `.pte` exports are skipped when `executorch` is not installed. TensorFlow's graph optimizer, which the quantised conversion runs, fails on a machine whose CUDA libraries are present but do not load; run the script with `CUDA_VISIBLE_DEVICES=-1` there. The committed files were produced and verified with Python 3.12 on Linux x86_64, with torch 2.14.0 (CPU build), onnx 1.23.0, onnxruntime 1.30.0, onnxscript 0.7.2, tensorflow 2.21.0, executorch 1.5.0 and numpy 2.5.3, and each loads and runs exactly in anira's pinned runtimes (ONNX Runtime 1.26.0, TFLite 2.17.0, LibTorch 2.12.0, ExecuTorch 1.3.1).
+
+To (re)generate the `VariantGainNetwork` models:
+
+```bash
+uv run python VariantGainNetwork/variant_gain_network.py
+```
+
+This builds the three variants `half`, `double` and `invert`. The `.pte` export is skipped when `executorch` is not installed. The committed files were produced and verified with Python 3.12.13 on Linux x86_64, with the versions `uv.lock` pins: torch 2.14.1 (CPU build), onnx 1.23.2, onnxruntime 1.31.1, onnxscript 0.7.2, tensorflow 2.21.0 (its bundled TFLite converter and interpreter), executorch 1.5.1 and numpy 2.5.4, and each also runs exactly in the Python builds of the runtime versions anira pins (onnxruntime 1.26.0, the TFLite interpreter of tensorflow 2.17.0, torch 2.12.0, executorch 1.3.1).
 
